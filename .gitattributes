@@ -1,2 +1,9 @@
 * text eol=lf
 LICENSE -text
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
