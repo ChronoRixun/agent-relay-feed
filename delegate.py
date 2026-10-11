@@ -165,6 +165,41 @@ def pid_alive(pid):
         return False
 
 
+def process_start_time(pid):
+    """Creation time of a live process as a Unix timestamp, or None if unknown."""
+    if not pid:
+        return None
+    if os.name == "nt":
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, int(pid))
+        if not h:
+            return None
+        ft = [ctypes.c_ulonglong() for _ in range(4)]
+        ok = k32.GetProcessTimes(h, *[ctypes.byref(f) for f in ft])
+        k32.CloseHandle(h)
+        if not ok:
+            return None
+        return ft[0].value / 1e7 - 11644473600  # FILETIME (100 ns since 1601) -> Unix seconds
+    try:
+        with open(f"/proc/{int(pid)}/stat") as f:
+            ticks = int(f.read().rsplit(")", 1)[1].split()[19])
+        with open("/proc/stat") as f:
+            btime = next(int(l.split()[1]) for l in f if l.startswith("btime"))
+        return btime + ticks / os.sysconf("SC_CLK_TCK")
+    except Exception:
+        return None
+
+
+def runner_alive(st):
+    """The job's runner is still the process that wrote this status (a reused PID is not)."""
+    pid = st.get("runner_pid")
+    if not pid_alive(pid):
+        return False
+    born = process_start_time(pid)
+    started = st.get("started")
+    return born is None or started is None or born <= started + 5
+
+
 def kill_tree(pid):
     if not pid:
         return
@@ -522,7 +557,7 @@ def effective_status(jd):
         if time.time() - meta.get("created", 0) < 60:
             return {"state": "starting"}
         return {"state": "lost", "errors": ["runner never started"]}
-    if st.get("state") == "running" and not pid_alive(st.get("runner_pid")):
+    if st.get("state") == "running" and not runner_alive(st):
         time.sleep(0.5)
         st = load_json(jd / "status.json", st)  # it may have just finished
         if st.get("state") == "running":
@@ -698,8 +733,12 @@ def cmd_cancel(args):
     # The runner did not respond: stop it ourselves.
     st = load_json(jd / "status.json", {}) or {}
     if st.get("state") not in TERMINAL:
-        kill_tree(st.get("child_pid"))
-        kill_tree(st.get("runner_pid"))
+        started = st.get("started") or 0
+        child_born = process_start_time(st.get("child_pid"))
+        if child_born is not None and child_born >= started - 5:   # never kill a process that reused the PID
+            kill_tree(st.get("child_pid"))
+        if runner_alive(st):
+            kill_tree(st.get("runner_pid"))
         st.update(state="cancelled", finished=time.time())
         st.setdefault("errors", []).append("runner did not respond to cancel; processes were killed")
         save_json(jd / "status.json", st)

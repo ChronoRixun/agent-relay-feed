@@ -80,3 +80,21 @@ class RepetitionTests(unittest.TestCase):
 
     def test_configured_threshold(self):
         self.assertEqual(C.repetition([('poll', 1), ('poll', 2), ('poll', 3)], 3, 1), (False, True))
+
+
+class RunnerLivenessTest(__import__("unittest").TestCase):
+    def test_reused_pid_is_not_alive(self):
+        import os
+        import time
+        import delegate
+        me = os.getpid()
+        # this process exists but started before the job's recorded start time + 5 s -> alive
+        self.assertTrue(delegate.runner_alive({"runner_pid": me, "started": time.time()}))
+        # a job that "started" an hour before this process existed: the PID must belong to someone else -> not alive
+        born = delegate.process_start_time(me)
+        if born is not None:
+            self.assertFalse(delegate.runner_alive({"runner_pid": me, "started": born - 3600}))
+
+    def test_missing_pid(self):
+        import delegate
+        self.assertFalse(delegate.runner_alive({"runner_pid": None, "started": 0}))
