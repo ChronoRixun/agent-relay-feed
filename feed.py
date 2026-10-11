@@ -427,7 +427,10 @@ def watched_processes(job_cwds):
         return found
 
 
-def snapshot(hours):
+def snapshot(hours, demo=False):
+    if demo:
+        from demo_data import demo_snapshot
+        return demo_snapshot(hours)
     now = time.time()
     jobs = []
     if D.JOBS_ROOT.is_dir():
@@ -445,6 +448,7 @@ def snapshot(hours):
 
 class Handler(BaseHTTPRequestHandler):
     hours = 12
+    demo = False
 
     def _send(self, code, body, ctype):
         data = body.encode('utf-8') if isinstance(body, str) else body
@@ -457,7 +461,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.startswith('/api/jobs'):
-            self._send(200, json.dumps(snapshot(self.hours)), 'application/json')
+            self._send(200, json.dumps(snapshot(self.hours, demo=self.demo)), 'application/json')
         elif self.path in ('/', '/index.html'):
             self._send(200, PAGE.read_text(encoding='utf-8'), 'text/html; charset=utf-8')
         else:
@@ -472,12 +476,14 @@ def main(argv=None):
     ap.add_argument('--port', type=int, default=CONFIG['feed_port'])
     ap.add_argument('--hours', type=float, default=12, help='show finished jobs from the last N hours (default 12)')
     ap.add_argument('--dump', action='store_true', help='print one snapshot as JSON and exit (for testing)')
+    ap.add_argument('--demo', action='store_true', help='show invented jobs and processes without reading job data')
     ap.add_argument('--open', action='store_true', help='open the loopback feed in your default browser')
     a = ap.parse_args(argv)
     if a.dump:
-        print(json.dumps(snapshot(a.hours), indent=1))
+        print(json.dumps(snapshot(a.hours, demo=a.demo), indent=1))
         return
     Handler.hours = a.hours
+    Handler.demo = a.demo
     srv = ThreadingHTTPServer(('127.0.0.1', a.port), Handler)
     url = f'http://127.0.0.1:{srv.server_port}'
     print(f'Agent Relay Feed on {url}  (Ctrl+C to stop)', flush=True)

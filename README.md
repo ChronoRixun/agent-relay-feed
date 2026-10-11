@@ -130,6 +130,8 @@ python delegate.py watch <job_id> --stall 10 --loop 6 --no-color
 
 The feed binds to `127.0.0.1:8765` by default. Open that URL in your browser, or use `--open` to open your default browser. It shows running cards and jobs finished in the last 12 hours (`--hours N`). Hover steps for the recorded command; expand cards for the timeline, progress notes and result. `--dump` prints the same snapshot as JSON without starting a server or opening a browser, even with `--open`. The terminal watch follows running and newly started jobs; supply job IDs to follow only those jobs.
 
+Use `python feed.py --demo` (optionally `--port N`) to preview invented jobs and processes without reading your job data.
+
 Badges and indicators:
 
 - Green dot: a running job.
@@ -144,7 +146,7 @@ Badges and indicators:
 
 The process panel is hidden without configuration. Process discovery uses PowerShell/CIM on Windows and `ps` on macOS/Linux, with `/proc` executable paths when available on Linux. Missing tools, permission restrictions and unavailable paths make discovery or ownership best effort. It never launches or stops watched processes.
 
-> Screenshot placeholder: add a screenshot using synthetic demo jobs before publishing. Do not include private work.
+![Agent Relay Feed](docs/feed.png)
 
 ## Optional local config
 
