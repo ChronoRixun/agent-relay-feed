@@ -33,16 +33,18 @@ header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bot
   padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
 h1 { font-size: 17px; margin: 0; font-weight: 650; letter-spacing: .2px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
-  background: var(--soft); border: 1px solid var(--line); font-size: 12.5px; white-space: nowrap; }
+  background: var(--soft); border: 1px solid var(--line); font-size: 12.5px;
+  max-width: 100%; overflow-wrap: anywhere; }
+#pc { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; max-width: 100%; }
 .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .pill.free .dot { background: var(--green); } .pill.agent .dot { background: var(--amber); }
 .pill.owner .dot { background: var(--blue); } .pill.unknown .dot { background: var(--red); }
 .spacer { flex: 1; }
 .muted { color: var(--muted); }
 button.link { background: none; border: 0; color: var(--blue); cursor: pointer; padding: 0; font: inherit; }
-main { padding: 16px; max-width: 1500px; margin: 0 auto; }
+main { padding: 16px; }
 h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 6px 0 10px; font-weight: 600; }
-.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); margin-bottom: 26px; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); margin-bottom: 26px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
   padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .card.warn { border-color: var(--amber); } .card.bad { border-color: var(--red); }
@@ -55,7 +57,7 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: v
   animation: pulse 2s infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 60%, transparent); }
   70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
-.metaline { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--muted); }
+.metaline { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
 .badge { font-size: 12px; padding: 1px 8px; border-radius: 6px; font-weight: 600; }
 .badge.amber { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
 .badge.red { background: color-mix(in srgb, var(--red) 16%, transparent); color: var(--red); }
@@ -85,14 +87,20 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
 details pre, .result { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; font-size: 12.5px;
   background: var(--soft); padding: 8px 10px; border-radius: 8px; max-height: 380px; overflow: auto; }
 .done { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.finished-job { break-inside: avoid; }
 .row { display: grid; grid-template-columns: 22px minmax(140px, 1.2fr) 120px 80px 70px 3fr; gap: 10px; padding: 8px 14px;
   border-bottom: 1px solid var(--line); cursor: pointer; align-items: baseline; font-size: 13px; }
 .row:hover { background: var(--soft); }
+.row > * { min-width: 0; overflow-wrap: anywhere; }
 .row .sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .rowx { padding: 0 14px 12px 46px; border-bottom: 1px solid var(--line); }
 .empty { color: var(--muted); padding: 18px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; }
+@media (min-width: 1600px) {
+  .done { columns: 2; column-gap: 0; column-rule: 1px solid var(--line); }
+  .done > .empty { column-span: all; }
+}
 @media (max-width: 720px) {
-  .row { grid-template-columns: 22px 1fr 70px; }
+  .row { grid-template-columns: 22px minmax(0, 1fr) 70px; }
   .row .c-model, .row .c-end, .row .sum { display: none; }
   .tl li { grid-template-columns: 54px 20px 1fr auto; }
 }
@@ -188,12 +196,12 @@ function finishedRow(j) {
   const end = j.finished ? new Date(j.finished * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
   const first = (j.result || (j.errors || [])[0] || '').split('\n').find(l => l.trim()) || '';
   const isOpen = open.has(j.id);
-  return `<div class="row" data-toggle="${esc(j.id)}"><span>${STATE[j.state] || '·'}</span><b>${esc(j.name)}</b>` +
+  return `<div class="finished-job"><div class="row" data-toggle="${esc(j.id)}"><span>${STATE[j.state] || '·'}</span><b>${esc(j.name)}</b>` +
     `<span class="c-model">${model(j)}</span><span class="muted">${dur(j.elapsed)}</span><span class="muted c-end">${end}</span>` +
     `<span class="sum">${esc(first.replace(/[#*`]/g, ''))}</span></div>` +
     (isOpen ? `<div class="rowx"><div class="result">${md(j.result || (j.errors || []).join('\n') || '(no final message)')}</div>
       <div class="metaline" style="margin-top:6px"><span class="mono">${esc(j.id)}</span><span class="mono">${esc(j.cwd)}</span>
-      <span>${(j.counts || {}).commands || 0} steps · state ${esc(j.state)}</span></div></div>` : '');
+      <span>${(j.counts || {}).commands || 0} steps · state ${esc(j.state)}</span></div></div>` : '') + '</div>';
 }
 function pc(processes, enabled) {
   if (!enabled) return '';
