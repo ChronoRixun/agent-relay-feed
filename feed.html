@@ -11,18 +11,19 @@
   --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #677085; --line: #e3e6ec; --soft: #f0f2f6;
   --green: #1f9d55; --amber: #c27c0e; --red: #d64545; --blue: #2f6fd6; --violet: #7b4fd1; --teal: #128a8a;
   --code: #eef1f6; --shadow: 0 1px 2px rgba(20,30,50,.06), 0 4px 14px rgba(20,30,50,.05); --claude: #c15f3c;
+  --gpt: #0e8f6f; --kimi: #2f6fd6;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #8f98aa; --line: #262c38; --soft: #1d222c;
     --green: #3fbf7f; --amber: #e3a23b; --red: #ef6b6b; --blue: #6c9cf0; --violet: #a789ee; --teal: #3cc2c2;
-    --code: #222836; --shadow: none; --claude: #e0896a;
+    --code: #222836; --shadow: none; --claude: #e0896a; --gpt: #3cc59c; --kimi: #6c9cf0;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #8f98aa; --line: #262c38; --soft: #1d222c;
   --green: #3fbf7f; --amber: #e3a23b; --red: #ef6b6b; --blue: #6c9cf0; --violet: #a789ee; --teal: #3cc2c2;
-  --code: #222836; --shadow: none; --claude: #e0896a;
+  --code: #222836; --shadow: none; --claude: #e0896a; --gpt: #3cc59c; --kimi: #6c9cf0;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink);
@@ -53,6 +54,8 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: v
 .chip { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
 .m-sol { color: var(--amber); } .m-astra { color: var(--violet); } .m-kimi { color: var(--blue); } .m-other { color: var(--muted); }
 .m-claude { color: var(--claude); } .chip.src-claude { background: var(--claude); border-color: var(--claude); color: var(--panel); font-weight: 600; }
+.chip.src-gpt { background: var(--gpt); border-color: var(--gpt); color: var(--panel); font-weight: 600; }
+.chip.src-kimi { background: var(--kimi); border-color: var(--kimi); color: var(--panel); font-weight: 600; }
 .chip.kind { color: var(--muted); border-style: dashed; }
 .chip.full { color: var(--red); } .chip.read { color: var(--teal); }
 .live { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 var(--green);
@@ -154,8 +157,11 @@ function model(j, compact) {
     return `<span class="chip src-claude" title="Claude Code subagent (${esc(p)})">Claude</span> <span class="chip m-claude">${esc(j.label)}</span>` +
       (compact ? '' : `<span class="chip kind" title="agent type">${esc(p)}</span>`);
   const cls = p.includes('sol') ? 'm-sol' : p.includes('astra') ? 'm-astra' : p.includes('kimi') ? 'm-kimi' : 'm-other';
-  const name = (j.label || p).replace('GPT-6.1-', '').replace('GPT-6-', '').replace(' Preview', '');
-  return `<span class="chip ${cls}">${esc(name)}</span>`;
+  const name = (j.label || p).replace('GPT-6.1-', '').replace('GPT-6-', '').replace(' Preview', '').replace(/^Kimi /, '');
+  // Relay job: provider badge (from the backend), then the model and effort.
+  const src = j.backend === 'kimi' ? ['src-kimi', 'Kimi', 'Moonshot Kimi via the Kimi Code CLI']
+    : j.backend === 'codex' ? ['src-gpt', 'GPT', 'OpenAI model via the Codex CLI'] : null;
+  return (src ? `<span class="chip ${src[0]}" title="${src[2]}">${src[1]}</span> ` : '') + `<span class="chip ${cls}">${esc(name)}</span>`;
 }
 function tok(n) { return n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n || 0); }
 function nested(j) {
