@@ -457,7 +457,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         self.send_header('Content-Length', str(len(data)))
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            pass    # the browser went away mid-reply (refresh, closed tab, overlapping poll): nothing to do
 
     def do_GET(self):
         if self.path.startswith('/api/jobs'):
@@ -469,6 +472,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, *a):
         pass
+
+
+def _quiet_handle_error(server, request, client_address):
+    """A client disconnecting mid-reply is not an error worth a traceback."""
+    import sys
+    if isinstance(sys.exc_info()[1], (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)):
+        return
+    type(server).handle_error(server, request, client_address)
 
 
 def main(argv=None):
@@ -485,6 +496,8 @@ def main(argv=None):
     Handler.hours = a.hours
     Handler.demo = a.demo
     srv = ThreadingHTTPServer(('127.0.0.1', a.port), Handler)
+    srv.daemon_threads = True
+    srv.handle_error = _quiet_handle_error.__get__(srv)
     url = f'http://127.0.0.1:{srv.server_port}'
     print(f'Agent Relay Feed on {url}  (Ctrl+C to stop)', flush=True)
     if a.open:
