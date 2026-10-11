@@ -117,8 +117,11 @@ def demo_snapshot(hours=12, now=None):
         entry['events'].insert(-1, dict(t=stamp(idle + 45), kind='message', text=note))
         entry['retries'] = 3 if profile == 1 else 0
         jobs.append(entry)
+    # The running Claude subagent sits second so it is visible beside the relay cards.
     for spec in _CLAUDE:
-        if spec[8] == 'running' or spec[9] < hours * 3600:
+        if spec[8] == 'running':
+            jobs.insert(1, claude(*spec))
+        elif spec[9] < hours * 3600:
             jobs.append(claude(*spec))
     for i, (name, state, result) in enumerate(_FINISHED):
         finish_age = (i + 1) * 14 * 60
