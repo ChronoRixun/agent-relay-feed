@@ -148,6 +148,29 @@ class ReaderTests(unittest.TestCase):
             rec = r.scan(NOW)[0]
             self.assertEqual((rec['steps'], rec['state']), (0, 'running'))
 
+    def test_parent_stop_cancels(self):
+        t = NOW - 600
+        lines = [prompt(t), tool(t + 1, 'Bash', dict(command='make'), 't1')]
+
+        def notice(at, task, status):
+            text = (f'<task-notification>\n<task-id>{task}</task-id>\n<status>{status}</status>\n'
+                    f'<summary>Agent stopped</summary>\n</task-notification>')
+            return dict(type='user', timestamp=iso(at), message=dict(role='user', content=text))
+
+        with temporary_directory() as td:
+            fx = Fixture(td)
+            fx.agent('a1', dict(agentType='general-purpose', description='stopped one'), lines, mtime=t + 1)
+            fx.agent('a2', dict(agentType='general-purpose', description='kept running'), lines, mtime=NOW - 5)
+            parent = fx.dir.parent.with_suffix('.jsonl')
+            parent.write_bytes(b''.join(json.dumps(l).encode() + b'\n' for l in [
+                notice(t + 30, 'a1', 'killed'), notice(t + 30, 'a2', 'completed')]))
+            states = {r['label']: r['state'] for r in reader(td).scan(NOW)}
+            self.assertEqual(states, {'stopped one': 'cancelled', 'kept running': 'running'})
+            # A stopped agent that is resumed later works again.
+            fx.append(fx.dir / 'agent-a1.jsonl', [prompt(NOW - 20, 'Continue.')], mtime=NOW - 20)
+            states = {r['label']: r['state'] for r in reader(td).scan(NOW)}
+            self.assertEqual(states['stopped one'], 'running')
+
     def test_status_rules(self):
         t = NOW - 600
         cases = [

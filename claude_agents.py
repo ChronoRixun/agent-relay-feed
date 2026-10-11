@@ -121,6 +121,7 @@ class Transcript:
         self.offset = 0
         self.meta, self.meta_mtime = {}, None
         self.agent_id = self.path.stem.removeprefix("agent-")
+        self.killed_at = None       # set from the parent session's task notifications
         self.session = self.path.parent.parent.name
         self.project = self.path.parent.parent.parent.name
         self.reset()
@@ -277,7 +278,8 @@ class Transcript:
         quiet = now - last
         pending = bool(self.pending)
         meta = self.meta
-        if meta.get("stoppedByUser") and quiet >= DONE_GRACE_S:
+        killed = self.killed_at is not None and self.killed_at >= last - DONE_GRACE_S
+        if (meta.get("stoppedByUser") or killed) and quiet >= DONE_GRACE_S:
             state = "cancelled"
         elif not self.turn_open and not pending and quiet >= DONE_GRACE_S:
             state = "failed" if self.api_error else "done"
@@ -316,6 +318,47 @@ class Transcript:
             return None
 
 
+_NOTICE = re.compile(rb"<task-id>([0-9a-zA-Z]+)</task-id>.*?<status>(\w+)</status>")
+
+
+class ParentNotices:
+    """Tails a session transcript for task notifications; remembers when each agent was stopped (killed)."""
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.offset = 0
+        self.killed = {}            # agent id -> epoch of the stop
+
+    def pump(self):
+        try:
+            size = self.path.stat().st_size
+        except OSError:
+            return
+        if size < self.offset:
+            self.offset, self.killed = 0, {}
+        if size == self.offset:
+            return
+        try:
+            with open(self.path, "rb") as f:
+                f.seek(self.offset)
+                while True:
+                    line = f.readline()
+                    if not line or not line.endswith(b"\n"):
+                        break
+                    self.offset += len(line)
+                    if b"task-notification" not in line or b"killed" not in line:
+                        continue
+                    try:
+                        at = _epoch(json.loads(line).get("timestamp"))
+                    except (ValueError, AttributeError):
+                        at = None
+                    for task, status in _NOTICE.findall(line):
+                        if status == b"killed" and at:
+                            self.killed[task.decode("ascii", "replace")] = at
+        except OSError:
+            pass
+
+
 class ClaudeAgents:
     """Discovers recently changed subagent transcripts and keeps one Transcript per file."""
 
@@ -330,6 +373,7 @@ class ClaudeAgents:
         self.stall_s = stall_seconds if stall_seconds is not None else cfg["stall_seconds"]
         self.lost_s = max(3600, 4 * self.stall_s)
         self.files = {}
+        self.parents = {}           # (session folder, session id) -> ParentNotices
         self.lock = threading.Lock()
 
     def discover(self, now):
@@ -383,6 +427,14 @@ class ClaudeAgents:
                     tr = self.files[p] = Transcript(p, self.humanize)
                 tr.load_meta()
                 tr.pump()
+            for key in {(tr.path.parent.parent, tr.session) for tr in self.files.values()}:
+                notes = self.parents.get(key)
+                if notes is None:
+                    notes = self.parents[key] = ParentNotices(key[0].with_suffix(".jsonl"))
+                notes.pump()
+            for tr in self.files.values():
+                notes = self.parents.get((tr.path.parent.parent, tr.session))
+                tr.killed_at = notes.killed.get(tr.agent_id) if notes else None
             records = [tr.record(now, self.stall_s, self.lost_s) for tr in self.files.values()]
         labels = {r["agent_id"]: r["label"] for r in records}
         out = []
