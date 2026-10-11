@@ -183,6 +183,8 @@ Generic example (adapt the paths and executable names):
 | `polling_seconds` | `30` | Minimum average interval that treats repetitions as polling. |
 | `job_path_roots` | `[]` | Optional shared work roots: the first folder below a root is matched to a job's working-directory components. |
 | `activity_ignore_paths` | `[]` | Exact shared directories to exclude from activity scans and broad process ownership matches. |
+| `codex_mcp_allow` | `[]` | MCP server names from your Codex config that relay jobs may load; every other server is switched off. Add `codex_apps` to keep ChatGPT app connectors. |
+| `codex_plugins_allow` | `[]` | Codex plugin names (as written in your Codex config, for example `name@source`) that relay jobs may load; every other plugin is switched off. |
 
 Each watched-process entry has `name`, optional fallback `owner`, and optional `owners`: an ordered list of `{path_patterns: [...], owner: "label"}` rules. Path patterns are literal substrings, with case and slash style ignored. A process inside a running job's working directory is attributed to that job first (longest directory wins), then shared-root matching applies. Optional `job_cwd_patterns: [...]` matches literal substrings in running job directories when an executable lives elsewhere; use only when that association is intentional. Then the first matching owner rule wins, followed by the fallback owner (`unknown` by default).
 
@@ -203,6 +205,7 @@ To expose it as a relay in Claude Code, add `dict(name="reviewer", profile="revi
 - Codex `read`: read-only sandbox. Codex `write`: workspace-write sandbox for the working directory, extra directories and progress folder, with network enabled. Codex `full`: bypasses sandbox and approval prompts; use only when explicitly authorized.
 - Kimi's prompt mode runs without approvals or sandbox enforcement. Its `read` and `write` modes are instructions in the brief, not filesystem protection.
 - Every brief instructs the worker not to commit, push, publish, send, launch games or drive the desktop unless the brief explicitly requests it. These instructions are not a network security boundary. Always state your constraints and review the returned work.
+- Codex relay jobs do not inherit your Codex tools: every MCP server and plugin in your Codex config (`$CODEX_HOME/config.toml`, default `~/.codex/config.toml`) is switched off for the job with `-c <kind>.<name>.enabled=false`, and ChatGPT app connectors with `-c features.apps=false`, unless the name is listed in `codex_mcp_allow` / `codex_plugins_allow`. This keeps a background agent away from desktop control, messaging and account tools you use interactively. Names containing a dot cannot be addressed by `codex -c` and stay as configured. Kimi jobs are unaffected.
 - Relays return reports without checking the worker's claims. CLI calls may consume provider quota or incur costs under your account.
 - Logs and briefs may contain sensitive project data. The feed is local and read-only, but anyone able to access its loopback port can read the displayed data. Do not expose it publicly or commit job logs.
 

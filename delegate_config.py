@@ -11,7 +11,12 @@ from pathlib import Path
 CONFIG_PATH = Path.home() / ".claude" / "delegate" / "config.json"
 DEFAULTS = dict(path_shortening=[], watched_processes=[], feed_port=8765,
                 stall_seconds=480, loop_count=6, polling_seconds=30,
-                job_path_roots=[], activity_ignore_paths=[])
+                job_path_roots=[], activity_ignore_paths=[],
+                # Relay jobs load only these MCP servers and plugins from the user's Codex
+                # config; everything else (desktop control, messaging, account tools) is
+                # switched off so a background agent cannot drive the real mouse and
+                # keyboard or act outside its brief.
+                codex_mcp_allow=[], codex_plugins_allow=[])
 
 
 def _strings(value):
@@ -23,7 +28,7 @@ def _valid(key, value):
         return type(value) is int and (1 <= value <= 65535 if key == "feed_port" else 2 <= value <= 10)
     if key in ("stall_seconds", "polling_seconds"):
         return type(value) in (int, float) and math.isfinite(value) and value > 0
-    if key in ("job_path_roots", "activity_ignore_paths"):
+    if key in ("job_path_roots", "activity_ignore_paths", "codex_mcp_allow", "codex_plugins_allow"):
         return _strings(value)
     if key == "path_shortening":
         return isinstance(value, list) and all(isinstance(p, list) and len(p) == 2 and

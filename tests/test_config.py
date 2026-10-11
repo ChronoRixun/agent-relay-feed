@@ -98,3 +98,25 @@ class RunnerLivenessTest(__import__("unittest").TestCase):
     def test_missing_pid(self):
         import delegate
         self.assertFalse(delegate.runner_alive({"runner_pid": None, "started": 0}))
+
+
+class CodexToolOverrideTests(unittest.TestCase):
+    def test_only_allowlisted_tools_stay_on(self):
+        import delegate
+        with temporary_directory() as td:
+            path = Path(td) / 'config.toml'
+            path.write_text('[mcp_servers.desk]\ncommand = "x"\n[mcp_servers.docs]\ncommand = "y"\n'
+                            '[plugins."computer-use@vendor"]\nenabled = true\n'
+                            '[plugins."dotted.name@vendor"]\nenabled = true\n', encoding='utf-8')
+            saved = dict(delegate.CONFIG)
+            try:
+                delegate.CONFIG.update(codex_mcp_allow=['docs'], codex_plugins_allow=[])
+                got = delegate.codex_tool_overrides(path)[1::2]
+                self.assertEqual(got, ['features.apps=false', 'mcp_servers.desk.enabled=false',
+                                       'plugins.computer-use@vendor.enabled=false'])
+                delegate.CONFIG.update(codex_mcp_allow=['docs', 'codex_apps'])
+                self.assertNotIn('features.apps=false', delegate.codex_tool_overrides(path))
+                self.assertEqual(delegate.codex_tool_overrides(Path(td) / 'missing.toml'), [])
+            finally:
+                delegate.CONFIG.clear()
+                delegate.CONFIG.update(saved)

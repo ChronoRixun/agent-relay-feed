@@ -257,11 +257,33 @@ def find_kimi():
 # ---------------------------------------------------------------- command building
 
 
+def codex_tool_overrides(path=None):
+    """-c overrides that switch off every MCP server and plugin in the user's Codex config
+    except the allowlisted ones (config keys codex_mcp_allow / codex_plugins_allow)."""
+    path = Path(path) if path else Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "config.toml"
+    try:
+        import tomllib
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+    except (OSError, ValueError, ImportError):
+        return []
+    # ChatGPT account connectors (GitHub, sites, ...) arrive as the built-in codex_apps server.
+    out = [] if "codex_apps" in CONFIG["codex_mcp_allow"] else ["-c", "features.apps=false"]
+    for kind, allow in (("mcp_servers", CONFIG["codex_mcp_allow"]), ("plugins", CONFIG["codex_plugins_allow"])):
+        for name in sorted((data.get(kind) or {})):
+            # codex -c splits the key path on dots and does not unquote, so names are
+            # passed bare; a name containing a dot cannot be addressed this way.
+            if name not in allow and "." not in name:
+                out += ["-c", f"{kind}.{name}.enabled=false"]
+    return out
+
+
 def build_codex_cmd(meta, jd):
     exe = find_codex()
     mode = meta["mode"]
     cfg = ["-c", f'model_reasoning_effort="{meta["effort"]}"',
            "-c", 'approval_policy="never"']
+    cfg += codex_tool_overrides()
     flags = []
     if mode == "full":
         flags.append("--dangerously-bypass-approvals-and-sandbox")
