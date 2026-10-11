@@ -28,6 +28,22 @@ _RUNNING = (
     ('migrate-db-schema', 3, 41 * 60, 20, 42,
      'Backfill and rollback both passed on sample data. Comparing row counts before the final migration check.'),
 )
+# Native Claude Code subagents: (icon, verb, detail, raw) steps as the transcript reader humanizes them.
+_CLAUDE_STEPS = (
+    ('read', 'Read', 'search/index.py', '~/code/shop-api/search/index.py'),
+    ('search', 'Search', '“def rank_products”', 'Grep def rank_products'),
+    ('agent', 'Start agent', 'researcher: Benchmark index options', 'Agent'),
+    ('write', 'Edit', 'search/ranking.py', '~/code/shop-api/search/ranking.py'),
+    ('test', 'Run tests', 'test_search.py', 'python -m pytest tests/test_search.py -q'),
+    ('mcp', 'tracker: create issue', '', 'mcp__tracker__create_issue'),
+)
+_CLAUDE = (
+    # name, agent type, model, depth, parent, age, idle, steps, state, finish age, note or result
+    ('Plan the search rollout', 'general-purpose', 'Opus 5.5', 1, None, 29 * 60, 40, 18, 'running', None,
+     'Ranking change is in; waiting for the benchmark before choosing the index.'),
+    ('Benchmark index options', 'researcher', 'Sonnet 5.5', 2, 'Plan the search rollout', 21 * 60, 0, 9, 'done', 6 * 60,
+     'Trigram index is 3x faster on sample queries; recommended with a size cap.'),
+)
 _FINISHED = (
     ('fix-pagination', 'done', 'Fixed cursor pagination; all 28 endpoint tests pass.'),
     ('add-health-endpoint', 'done', 'Added health and readiness endpoints with smoke tests.'),
@@ -67,6 +83,28 @@ def demo_snapshot(hours=12, now=None):
             now_msg=None, now_msg_t=None, current=events[-1],
             counts=dict(commands=steps, failed=0, files=steps // 4, messages=0, errors=0),
             events=events, progress=[], result=result, errors=[],
+            source='relay', agent_type=None, depth=None, parent=None, tokens=None,
+        )
+
+    def claude(name, kind, model, depth, parent, age, idle, steps, state, finish_age, text):
+        events = []
+        for i in range(steps):
+            event_age = age - (age - max(idle, finish_age or 0)) * (i + 1) / steps
+            icon, verb, detail, raw = _CLAUDE_STEPS[i % len(_CLAUDE_STEPS)]
+            events.append(dict(t=stamp(event_age), kind='command', rc=0,
+                               icon=icon, verb=verb, detail=detail, raw=raw, more=0))
+        running = state == 'running'
+        events.insert(-1, dict(t=stamp((finish_age or idle) + 30), kind='message', text=text))
+        return dict(
+            id='demo-claude-' + kind, name=name, profile=kind, label=model, backend='claude',
+            mode=None, cwd='~/code/shop-api', state=state, started=now - age,
+            finished=None if running else now - finish_age, elapsed=age - (finish_age or 0),
+            idle=idle if running else None, stalled=False, loop=False, retries=0,
+            now_msg=text, now_msg_t=stamp((finish_age or idle) + 30), current=events[-1],
+            counts=dict(commands=steps, failed=0, files=steps // 6, messages=1, errors=0),
+            events=events, progress=[], result=None if running else text, errors=[],
+            source='claude', agent_type=kind, depth=depth, parent=parent,
+            tokens=dict(output=steps * 1400, context=60000 + steps * 2500),
         )
 
     jobs = []
@@ -79,6 +117,9 @@ def demo_snapshot(hours=12, now=None):
         entry['events'].insert(-1, dict(t=stamp(idle + 45), kind='message', text=note))
         entry['retries'] = 3 if profile == 1 else 0
         jobs.append(entry)
+    for spec in _CLAUDE:
+        if spec[8] == 'running' or spec[9] < hours * 3600:
+            jobs.append(claude(*spec))
     for i, (name, state, result) in enumerate(_FINISHED):
         finish_age = (i + 1) * 14 * 60
         if finish_age >= hours * 3600:

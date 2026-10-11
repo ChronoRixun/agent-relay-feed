@@ -832,6 +832,53 @@ def _job_tag(meta):
     return f"{folder}:{meta.get('profile', '?').replace('gpt-', '')}"
 
 
+def _claude_tag(rec):
+    return f"claude/{rec['agent_type'].rsplit(':', 1)[-1][:14]}#{rec['agent_id'][-4:]}"
+
+
+def _watch_claude(reader, followed, now, args, emit):
+    """Start / finish / stall / loop lines for native Claude Code subagents (no per-step lines)."""
+    for rec in reader.scan(now):
+        tag = _claude_tag(rec)
+        job = followed.get(rec["id"])
+        if job is None:
+            if rec["state"] != "running":
+                continue
+            job = followed[rec["id"]] = dict(steps=rec["steps"], last_event=rec["last_activity"], warned=False,
+                                             recent=[], done=False)
+            under = f"  under {rec['parent']}" if rec.get("parent") else ""
+            emit(tag, "green", f"▶ {rec['label']}  ({rec['model'] or 'Claude'}, {rec['agent_type']}){under}")
+        if job["done"]:
+            if rec["state"] != "running":
+                continue
+            job["done"] = False      # resumed with a follow-up message
+            emit(tag, "green", f"▶ resumed: {rec['label']}")
+        if rec["last_activity"] > job["last_event"]:
+            job["last_event"], job["warned"] = rec["last_activity"], False
+        new = rec["steps"] - job["steps"]
+        if new > 0:
+            job["steps"] = rec["steps"]
+            job["recent"] = (job["recent"] + rec["recent"][-min(new, len(rec["recent"])):])[-10:]
+            loop, _polling = repetition(job["recent"], count=args.loop)
+            if loop:
+                same = sum(step == job["recent"][-1][0] for step, _t in job["recent"])
+                emit(tag, "yellow", f"⚠ the same step ran {same} times in the last 10 - possible loop")
+                job["recent"] = []
+        if rec["state"] in TERMINAL:
+            job["done"] = True
+            first = next((l for l in (rec.get("result") or "").splitlines() if l.strip()), "")
+            colour = "green" if rec["state"] == "done" else "red"
+            emit(tag, colour, f"■ {rec['state']}  after {fmt_secs(rec['last_activity'] - rec['started'])}"
+                 + (f"  » {first.strip('# *')}" if first else ""))
+        elif not job["warned"] and now - job["last_event"] > args.stall * 60:
+            wrote = _newest_write(rec["workdir"])
+            if now - wrote <= args.stall * 60:
+                job["last_event"] = wrote
+                continue
+            job["warned"] = True
+            emit(tag, "yellow", f"⚠ no activity for {args.stall} min (still running)")
+
+
 def cmd_watch(args):
     """Follow the activity of running jobs live: one line per command / message, plus stall and loop warnings."""
     if os.name == "nt":
@@ -850,10 +897,23 @@ def cmd_watch(args):
             return []
         return sorted((p for p in JOBS_ROOT.iterdir() if p.is_dir()), reverse=True)[:40]
 
-    out(f"{c['bold']}watching delegate jobs (Ctrl+C to stop; stall warning after {args.stall} min){c['off']}")
+    # native Claude Code subagents too, unless only named jobs are followed or the config switches them off
+    claude, claude_followed = None, {}
+    if not args.job and CONFIG["claude_agents_enabled"]:
+        import claude_agents
+        claude = claude_agents.ClaudeAgents(stall_seconds=args.stall * 60)
+    what = "delegate jobs and Claude subagents" if claude else "delegate jobs"
+    out(f"{c['bold']}watching {what} (Ctrl+C to stop; stall warning after {args.stall} min){c['off']}")
     try:
         while True:
             now = time.time()
+            if claude is not None:
+                try:
+                    _watch_claude(claude, claude_followed, now, args, emit)
+                except Exception as e:      # an unreadable transcript must not end the watch; say so once
+                    if claude_followed.get("_error") != repr(e):
+                        claude_followed["_error"] = repr(e)
+                        emit("claude", "red", f"could not read Claude subagents: {e!r}")
             for jd in candidates():
                 job_id = jd.name
                 if job_id not in followed:

@@ -144,6 +144,19 @@ Badges and indicators:
 - Finished icon: done, failed, timeout, cancelled or lost (runner missing without a final status).
 - Optional process pills: watched executable, matching job or configured owner; unknown means attribution failed. Green means no watched process was found, not that the whole computer is idle.
 
+### Claude Code subagents
+
+The feed and `watch` also show native Claude Code subagents: agents started with the Agent tool, including nested ones and custom agent types. Claude Code writes each subagent's transcript to `~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl`, next to an `agent-<id>.meta.json` with its description, agent type and nesting depth. The feed reads transcripts changed in the last 24 hours, tailing each file from where it left off, and never writes to them.
+
+- Card: a "Claude" badge, the model (for example "Opus 5.5") and the agent type; the title is the description given when the agent was spawned. Nested agents name the agent that started them.
+- Steps: one line per tool call, in the same words as relay jobs (commands, Read/Edit/Write with file names, searches, agent spawns, MCP tool names). The card also shows the agent's own short text lines and its output token count. Prompts, file contents and tool output are never shown.
+- Status: running while the agent's turn is open; done once its last message ended the turn with no tool call pending and the transcript stayed quiet for a few seconds; failed when that last message is an API error; cancelled when Claude Code records that you stopped it; lost when an open turn has been silent for an hour (the session ended under it). Quiet and possible-loop warnings follow the same rules as relay jobs.
+- Finished subagents list the first lines of their final message.
+- Subagents whose type is one of this tool's relays are left out: the relay job's own card already shows that work.
+- `watch` prints a line when a subagent starts, finishes, goes quiet or seems to loop. It follows subagents only when no job IDs are given.
+
+Set `claude_agents_enabled` to `false` to turn this off (see the config table below).
+
 The process panel is hidden without configuration. Process discovery uses PowerShell/CIM on Windows and `ps` on macOS/Linux, with `/proc` executable paths when available on Linux. Missing tools, permission restrictions and unavailable paths make discovery or ownership best effort. It never launches or stops watched processes.
 
 ![Agent Relay Feed](docs/feed.png)
@@ -169,7 +182,10 @@ Generic example (adapt the paths and executable names):
   "loop_count": 6,
   "polling_seconds": 30,
   "job_path_roots": ["/work/tasks"],
-  "activity_ignore_paths": ["/work/tasks"]
+  "activity_ignore_paths": ["/work/tasks"],
+  "claude_agents_enabled": true,
+  "claude_agents_window_hours": 24,
+  "claude_agents_projects": []
 }
 ```
 
@@ -185,6 +201,10 @@ Generic example (adapt the paths and executable names):
 | `activity_ignore_paths` | `[]` | Exact shared directories to exclude from activity scans and broad process ownership matches. |
 | `codex_mcp_allow` | `[]` | MCP server names from your Codex config that relay jobs may load; every other server is switched off. Add `codex_apps` to keep ChatGPT app connectors. |
 | `codex_plugins_allow` | `[]` | Codex plugin names (as written in your Codex config, for example `name@source`) that relay jobs may load; every other plugin is switched off. |
+| `claude_agents_enabled` | `true` | Show native Claude Code subagents in the feed and `watch`. |
+| `claude_projects_root` | `~/.claude/projects` | Where Claude Code keeps session transcripts. |
+| `claude_agents_window_hours` | `24` | Only subagent transcripts changed within this many hours are read. |
+| `claude_agents_projects` | `[]` | Optional substrings; when set, only subagents whose project folder or working directory contains one are shown (case and slash style ignored). |
 
 Each watched-process entry has `name`, optional fallback `owner`, and optional `owners`: an ordered list of `{path_patterns: [...], owner: "label"}` rules. Path patterns are literal substrings, with case and slash style ignored. A process inside a running job's working directory is attributed to that job first (longest directory wins), then shared-root matching applies. Optional `job_cwd_patterns: [...]` matches literal substrings in running job directories when an executable lives elsewhere; use only when that association is intentional. Then the first matching owner rule wins, followed by the fallback owner (`unknown` by default).
 

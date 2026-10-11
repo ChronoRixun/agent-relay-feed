@@ -1,6 +1,6 @@
 {
   "name": "agent-relay-feed",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Spawn agents and keep an eye on your background tasks in Claude Code.",
   "author": {
     "name": "ChronoRixun"
@@ -11,6 +11,7 @@
     "delegation",
     "feed",
     "codex",
-    "kimi"
+    "kimi",
+    "subagents"
   ]
 }

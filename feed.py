@@ -6,7 +6,8 @@
 Reads the same files as `delegate.py watch` (jobs/<id>/meta.json + status.json, the per-agent
 activity log, progress notes and result) and turns each raw activity line into something a person can
 read at a glance - "Read task-020g.md", "Run tests", "git commit" - with stall / loop warnings and
-optional watched processes.
+optional watched processes. Native Claude Code subagents (Agent tool) appear beside the relay jobs,
+read from their transcripts by claude_agents.py.
 
     python feed.py [--port 8765] [--hours 12]      then open http://127.0.0.1:8765
 
@@ -23,6 +24,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import claude_agents as CA
 import delegate as D
 from delegate_config import CONFIG, ignored_activity_path, normalize_path, repetition
 
@@ -81,8 +83,13 @@ def _split_commands(text):
         cur.append(ch)
         i += 1
     parts.append(''.join(cur))
-    parts = [p.strip().removesuffix('...').strip() for p in parts]
-    return [p for p in parts if p and not re.match(r'^\$env:|^cd\b|^Set-Location\b|^echo\b|^Write-(Host|Output)\b', p.strip(), re.I)]
+    parts = [_SHELL_KEYWORD.sub('', p.strip().removesuffix('...').strip()).rstrip(')}').strip() for p in parts]
+    return [p for p in parts if p and not re.match(r'^\$env:|^cd\b|^Set-Location\b|^echo\b|^Write-(Host|Output)\b|'
+                                                   r'^(?:for|select)\s+\w+\s+in\b|^(?:done|fi|esac)$|^\[\[?\s|^set\s+[-+]', p.strip(), re.I)]
+
+
+# bash control words, subshells and `timeout N` in front of the command that does the work
+_SHELL_KEYWORD = re.compile(r'^(?:(?:do|then|else|if|while|until|time)\s+|!\s*|[({]\s*|timeout\s+-?[\w.]+\s+)+')
 
 
 _STDLIB = set('sys os re json math time copy types struct pathlib collections itertools functools subprocess shutil glob '
@@ -157,6 +164,8 @@ def humanize_piece(cmd):
         return ('copy', 'Copy', ' → '.join(_first_paths(c, 2)))
     if re.match(r'^(remove-item|rm|del|rmdir)\b', low):
         return ('delete', 'Delete', ', '.join(_first_paths(c)))
+    if re.match(r'^(sleep|start-sleep)\b', low):
+        return ('proc', 'Wait', ' '.join(w for w in c.split()[1:3] if not w.startswith('-')))
     if re.match(r'^(get-process|tasklist|get-ciminstance)\b', low):
         return ('proc', 'Check processes', '')
     if re.match(r'^(get-filehash|certutil|sha1sum|sha256sum)\b', low):
@@ -213,6 +222,11 @@ def humanize_kimi(text):
             h = dict(icon='run', verb=name, detail='', more=0, raw=js[:600])
         out.append(h)
     return out
+
+
+def humanize_claude(name, inp):
+    """One Claude Code tool call (Bash, Edit, Grep, Agent, mcp__server__tool, ...) as a feed step."""
+    return CA.humanize_tool(name, inp, humanize_command, _base)
 
 
 # ------------------------------------------------------------------ jobs
@@ -349,7 +363,55 @@ def job_summary(jd, now):
         progress=tail_lines(meta.get('progress_file') or ap['progress'], 6),
         result=(D.read_text(jd / 'result.md').strip()[:4000] if not running else None),
         errors=st.get('errors') or [],
+        source='relay', agent_type=None, depth=None, parent=None, tokens=None,
     )
+
+
+# ------------------------------------------------------------------ Claude Code subagents
+
+_claude = dict(reader=None)
+
+
+def claude_reader():
+    """One incremental transcript reader per feed process (None when switched off in the config)."""
+    if not CONFIG['claude_agents_enabled']:
+        return None
+    if _claude['reader'] is None:
+        _claude['reader'] = CA.ClaudeAgents(humanize=humanize_claude)
+    return _claude['reader']
+
+
+def claude_job_summary(rec, now):
+    """A subagent record in the same shape as a relay job, with the same stall and loop rules."""
+    running = rec['state'] == 'running'
+    last_touch = rec['last_activity']
+    if running:     # inside one long tool call the transcript is silent; recent writes in its folder count
+        last_touch = max(last_touch, newest_write(rec['workdir']))
+    idle = now - last_touch
+    loop, _polling = repetition(rec['recent'], count=LOOP_N)
+    events = rec['events']
+    cmds = [e for e in events if e['kind'] == 'command']
+    msgs = [e for e in events if e['kind'] == 'message']
+    finished = rec['finished']
+    return dict(
+        id=rec['id'], name=rec['label'], profile=rec['agent_type'], label=rec['model'] or 'Claude',
+        backend='claude', mode=None, cwd=rec['workdir'], state=rec['state'],
+        started=rec['started'], finished=finished, elapsed=(finished or now) - rec['started'],
+        idle=idle if running else None, stalled=running and idle > STALL_S, loop=running and loop, retries=0,
+        now_msg=msgs[-1]['text'] if msgs else None, now_msg_t=msgs[-1]['t'] if msgs else None,
+        current=cmds[-1] if cmds else None,
+        counts=dict(commands=rec['steps'], failed=rec['failed'], files=rec['edits'], messages=rec['messages'],
+                    errors=len(rec['errors'])),
+        events=events, progress=[], result=rec['result'], errors=rec['errors'],
+        source='claude', agent_type=rec['agent_type'], depth=rec['depth'], parent=rec['parent'], tokens=rec['tokens'],
+    )
+
+
+def claude_jobs(now):
+    reader = claude_reader()
+    if reader is None:
+        return []
+    return [claude_job_summary(r, now) for r in reader.scan(now)]
 
 
 # ------------------------------------------------------------------ optional watched processes
@@ -441,7 +503,15 @@ def snapshot(hours, demo=False):
                 s = dict(id=jd.name, name=jd.name, state='?', error=repr(e), started=now, elapsed=0, events=[])
             if s['state'] in ('running', 'starting') or now - (s.get('finished') or s['started']) < hours * 3600:
                 jobs.append(s)
-    cwds = [(j['name'], j.get('cwd')) for j in jobs if j['state'] in ('running', 'starting')]
+    try:
+        jobs += [s for s in claude_jobs(now)
+                 if s['state'] == 'running' or now - (s['finished'] or s['started']) < hours * 3600]
+    except Exception as e:      # an unreadable transcript must not blank the page either
+        jobs.append(dict(id='claude-agents', name='Claude subagents', state='?', error=repr(e), started=now,
+                         elapsed=0, events=[], source='claude'))
+    jobs.sort(key=lambda j: -(j.get('started') or 0))
+    # a subagent usually shares its whole session's folder, so watched processes are attributed to relay jobs only
+    cwds = [(j['name'], j.get('cwd')) for j in jobs if j['state'] in ('running', 'starting') and j.get('source') != 'claude']
     return dict(now=now, jobs=jobs, processes=watched_processes(cwds),
                 process_panel=bool(CONFIG['watched_processes']))
 

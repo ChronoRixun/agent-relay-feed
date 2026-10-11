@@ -16,7 +16,12 @@ DEFAULTS = dict(path_shortening=[], watched_processes=[], feed_port=8765,
                 # config; everything else (desktop control, messaging, account tools) is
                 # switched off so a background agent cannot drive the real mouse and
                 # keyboard or act outside its brief.
-                codex_mcp_allow=[], codex_plugins_allow=[])
+                codex_mcp_allow=[], codex_plugins_allow=[],
+                # Native Claude Code subagents (Agent tool) shown beside relay jobs: transcripts under
+                # the projects root changed within the window; an optional list of substrings keeps
+                # only matching project folders or working directories.
+                claude_agents_enabled=True, claude_projects_root="~/.claude/projects",
+                claude_agents_window_hours=24, claude_agents_projects=[])
 
 
 def _strings(value):
@@ -26,9 +31,14 @@ def _strings(value):
 def _valid(key, value):
     if key in ("feed_port", "loop_count"):
         return type(value) is int and (1 <= value <= 65535 if key == "feed_port" else 2 <= value <= 10)
-    if key in ("stall_seconds", "polling_seconds"):
+    if key == "claude_agents_enabled":
+        return type(value) is bool
+    if key == "claude_projects_root":
+        return isinstance(value, str) and bool(value.strip())
+    if key in ("stall_seconds", "polling_seconds", "claude_agents_window_hours"):
         return type(value) in (int, float) and math.isfinite(value) and value > 0
-    if key in ("job_path_roots", "activity_ignore_paths", "codex_mcp_allow", "codex_plugins_allow"):
+    if key in ("job_path_roots", "activity_ignore_paths", "codex_mcp_allow", "codex_plugins_allow",
+               "claude_agents_projects"):
         return _strings(value)
     if key == "path_shortening":
         return isinstance(value, list) and all(isinstance(p, list) and len(p) == 2 and

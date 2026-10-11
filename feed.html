@@ -10,19 +10,19 @@
 :root {
   --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #677085; --line: #e3e6ec; --soft: #f0f2f6;
   --green: #1f9d55; --amber: #c27c0e; --red: #d64545; --blue: #2f6fd6; --violet: #7b4fd1; --teal: #128a8a;
-  --code: #eef1f6; --shadow: 0 1px 2px rgba(20,30,50,.06), 0 4px 14px rgba(20,30,50,.05);
+  --code: #eef1f6; --shadow: 0 1px 2px rgba(20,30,50,.06), 0 4px 14px rgba(20,30,50,.05); --claude: #c15f3c;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #8f98aa; --line: #262c38; --soft: #1d222c;
     --green: #3fbf7f; --amber: #e3a23b; --red: #ef6b6b; --blue: #6c9cf0; --violet: #a789ee; --teal: #3cc2c2;
-    --code: #222836; --shadow: none;
+    --code: #222836; --shadow: none; --claude: #e0896a;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #8f98aa; --line: #262c38; --soft: #1d222c;
   --green: #3fbf7f; --amber: #e3a23b; --red: #ef6b6b; --blue: #6c9cf0; --violet: #a789ee; --teal: #3cc2c2;
-  --code: #222836; --shadow: none;
+  --code: #222836; --shadow: none; --claude: #e0896a;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink);
@@ -52,6 +52,8 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: v
 .name { font-weight: 650; font-size: 15.5px; margin-right: auto; overflow-wrap: anywhere; }
 .chip { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
 .m-sol { color: var(--amber); } .m-astra { color: var(--violet); } .m-kimi { color: var(--blue); } .m-other { color: var(--muted); }
+.m-claude { color: var(--claude); } .chip.src-claude { background: var(--claude); border-color: var(--claude); color: var(--panel); font-weight: 600; }
+.chip.kind { color: var(--muted); border-style: dashed; }
 .chip.full { color: var(--red); } .chip.read { color: var(--teal); }
 .live { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 var(--green);
   animation: pulse 2s infinite; }
@@ -88,7 +90,7 @@ details pre, .result { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6
   background: var(--soft); padding: 8px 10px; border-radius: 8px; max-height: 380px; overflow: auto; }
 .done { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .finished-job { break-inside: avoid; }
-.row { display: grid; grid-template-columns: 22px minmax(140px, 1.2fr) 120px 80px 70px 3fr; gap: 10px; padding: 8px 14px;
+.row { display: grid; grid-template-columns: 22px minmax(140px, 1.2fr) 150px 80px 70px 3fr; gap: 10px; padding: 8px 14px;
   border-bottom: 1px solid var(--line); cursor: pointer; align-items: baseline; font-size: 13px; }
 .row:hover { background: var(--soft); }
 .row > * { min-width: 0; overflow-wrap: anywhere; }
@@ -123,7 +125,7 @@ details pre, .result { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6
 <script>
 const ICON = { read:'📄', search:'🔍', list:'📁', git:'⎇', test:'🧪', build:'🔨', game:'🎮', proc:'⚙️', write:'✏️',
   copy:'📋', delete:'🗑️', hash:'#️⃣', run:'▶️', code:'🐍', misc:'·', message:'💬', files:'📝', error:'⚠️',
-  started:'🚀', session:'🔗', 'turn completed':'✅', other:'·' };
+  started:'🚀', session:'🔗', 'turn completed':'✅', other:'·', agent:'🤖', mcp:'🔌', todo:'☑️', web:'🌐' };
 const STATE = { done:'✅', failed:'❌', timeout:'⏱️', cancelled:'⏹️', lost:'❓' };
 const open = new Set(JSON.parse(safeGet('feed.open') || '[]'));
 let last = null;
@@ -146,11 +148,19 @@ function ago(hms, now) {   // event stamps are HH:MM:SS local
   let diff = (d - t) / 1000; if (diff < -60) diff += 86400;
   return dur(diff) + ' ago';
 }
-function model(j) {
+function model(j, compact) {
   const p = j.profile || '';
+  if (j.source === 'claude')   // Claude Code subagent: source badge, model, and its agent type
+    return `<span class="chip src-claude" title="Claude Code subagent (${esc(p)})">Claude</span> <span class="chip m-claude">${esc(j.label)}</span>` +
+      (compact ? '' : `<span class="chip kind" title="agent type">${esc(p)}</span>`);
   const cls = p.includes('sol') ? 'm-sol' : p.includes('astra') ? 'm-astra' : p.includes('kimi') ? 'm-kimi' : 'm-other';
   const name = (j.label || p).replace('GPT-6.1-', '').replace('GPT-6-', '').replace(' Preview', '');
   return `<span class="chip ${cls}">${esc(name)}</span>`;
+}
+function tok(n) { return n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n || 0); }
+function nested(j) {
+  if (j.source !== 'claude' || !(j.depth > 1)) return '';
+  return `<span title="spawned by another subagent">↳ ${j.parent ? 'under ' + esc(j.parent) : 'nested, depth ' + j.depth}</span>`;
 }
 function evRow(e) {
   if (e.kind === 'command') {
@@ -182,10 +192,10 @@ function card(j, now) {
   const k = j.counts || {};
   return `<section class="card ${cls}">
     <div class="top"><span class="live"></span><span class="name">${esc(j.name)}</span>${model(j)}${mode}</div>
-    <div class="metaline"><span>running ${dur(j.elapsed)}</span><span>last activity ${dur(j.idle || 0)} ago</span>${warn.join('')}</div>
+    <div class="metaline"><span>running ${dur(j.elapsed)}</span><span>last activity ${dur(j.idle || 0)} ago</span>${nested(j)}${warn.join('')}</div>
     ${j.now_msg ? `<div class="note ${isOpen ? 'open' : ''}" data-toggle="${esc(j.id)}"><div class="when">latest note · ${j.now_msg_t} · ${ago(j.now_msg_t, now)}</div><div class="txt">${md(j.now_msg)}</div></div>` : ''}
     ${nowLine}
-    <div class="stats"><span><b>${k.commands || 0}</b> steps</span><span class="${k.failed ? 'fail' : ''}"><b>${k.failed || 0}</b> non-zero exits</span><span><b>${k.messages || 0}</b> notes</span><span><b>${k.files || 0}</b> file edits</span></div>
+    <div class="stats"><span><b>${k.commands || 0}</b> steps</span><span class="${k.failed ? 'fail' : ''}"><b>${k.failed || 0}</b> ${j.source === 'claude' ? 'failed steps' : 'non-zero exits'}</span><span><b>${k.messages || 0}</b> notes</span><span><b>${k.files || 0}</b> file edits</span>${j.tokens ? `<span title="output tokens so far · size of the latest prompt"><b>${tok(j.tokens.output)}</b> out · <b>${tok(j.tokens.context)}</b> context</span>` : ''}</div>
     <ul class="tl">${shown.map(evRow).join('')}</ul>
     <div class="metaline"><button class="link" data-toggle="${esc(j.id)}">${isOpen ? 'show less' : `show all ${evs.length} steps`}</button>
       <span class="mono" title="${esc(j.cwd)}">${esc((j.cwd || '').split(/[\\/]/).slice(-2).join('/'))}</span><span class="mono">${esc(j.id)}</span></div>
@@ -197,7 +207,7 @@ function finishedRow(j) {
   const first = (j.result || (j.errors || [])[0] || '').split('\n').find(l => l.trim()) || '';
   const isOpen = open.has(j.id);
   return `<div class="finished-job"><div class="row" data-toggle="${esc(j.id)}"><span>${STATE[j.state] || '·'}</span><b>${esc(j.name)}</b>` +
-    `<span class="c-model">${model(j)}</span><span class="muted">${dur(j.elapsed)}</span><span class="muted c-end">${end}</span>` +
+    `<span class="c-model">${model(j, true)}</span><span class="muted">${dur(j.elapsed)}</span><span class="muted c-end">${end}</span>` +
     `<span class="sum">${esc(first.replace(/[#*`]/g, ''))}</span></div>` +
     (isOpen ? `<div class="rowx"><div class="result">${md(j.result || (j.errors || []).join('\n') || '(no final message)')}</div>
       <div class="metaline" style="margin-top:6px"><span class="mono">${esc(j.id)}</span><span class="mono">${esc(j.cwd)}</span>

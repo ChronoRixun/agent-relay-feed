@@ -1,6 +1,6 @@
 ---
 name: feed
-description: Start or open the local Agent Relay Feed for background task progress.
+description: Start or open the local Agent Relay Feed for background task and subagent progress.
 disable-model-invocation: true
 allowed-tools: Bash
 ---
@@ -26,3 +26,5 @@ for the user to open manually. Respect a request to start without opening by
 omitting `--open`. Accept port/hours preferences by supplying `--port N` and
 `--hours N`; do not insert arbitrary user text into a shell command.
 The server binds only to 127.0.0.1; never expose it publicly.
+The feed also lists this machine's native Claude Code subagents (Agent tool) from
+their transcripts unless `claude_agents_enabled` is false in the local config.

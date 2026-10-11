@@ -49,16 +49,22 @@ class DemoTests(unittest.TestCase):
         snap = demo_snapshot()
         running = [j for j in snap['jobs'] if j['state'] == 'running']
         finished = [j for j in snap['jobs'] if j['state'] != 'running']
-        self.assertEqual(len(running), 4)
-        self.assertEqual(len(finished), 9)
+        self.assertEqual(len(running), 5)
+        self.assertEqual(len(finished), 10)
         self.assertEqual(sum(j['stalled'] for j in running), 1)
         self.assertEqual(sum(bool(j['retries']) for j in running), 1)
-        self.assertEqual({j['mode'] for j in running}, {'read', 'write', 'full'})
+        relays = [j for j in running if j['source'] == 'relay']
+        self.assertEqual({j['mode'] for j in relays}, {'read', 'write', 'full'})
         self.assertEqual({j['state'] for j in finished}, {'done', 'failed', 'cancelled'})
-        self.assertTrue(all(j['now_msg'] and j['progress'] for j in running))
+        self.assertTrue(all(j['now_msg'] for j in running) and all(j['progress'] for j in relays))
+        claude = [j for j in snap['jobs'] if j['source'] == 'claude']
+        self.assertEqual([(j['state'], j['depth'], j['backend']) for j in claude],
+                         [('running', 1, 'claude'), ('done', 2, 'claude')])
+        self.assertEqual(claude[1]['parent'], claude[0]['name'])
+        self.assertTrue(all(j['tokens']['output'] > 0 and j['label'] for j in claude))
         self.assertTrue(all(j['result'] and '\n' not in j['result'] for j in finished))
         verbs = {e['verb'] for j in running for e in j['events'] if e['kind'] == 'command'}
-        self.assertTrue({'Read', 'Search', 'Run tests', 'git commit', 'Build', 'Python snippet'} <= verbs)
+        self.assertTrue({'Read', 'Search', 'Run tests', 'git commit', 'Build', 'Python snippet', 'Start agent', 'Edit'} <= verbs)
         self.assertTrue(snap['process_panel'])
         self.assertEqual(len(snap['processes']), 2)
         self.assertTrue(all(j['cwd'] == '~/code/shop-api' for j in snap['jobs']))
@@ -78,8 +84,8 @@ class DemoTests(unittest.TestCase):
             self.assertEqual(a['name'], b['name'])
             if a['finished'] is not None:
                 self.assertEqual(b['finished'] - a['finished'], 60)
-        self.assertEqual(len(demo_snapshot(hours=0)['jobs']), 4)
-        self.assertEqual(len(demo_snapshot(hours=1)['jobs']), 8)
+        self.assertEqual(len(demo_snapshot(hours=0)['jobs']), 5)
+        self.assertEqual(len(demo_snapshot(hours=1)['jobs']), 10)
         first['jobs'][0]['name'] = 'changed'
         self.assertEqual(demo_snapshot(now=1800000000)['jobs'][0]['name'], 'refactor-auth-module')
 
@@ -92,7 +98,7 @@ class DemoTests(unittest.TestCase):
              patch.object(F.webbrowser, 'open') as browser, \
              contextlib.redirect_stdout(io.StringIO()) as out:
             F.main(['--demo', '--dump', '--open'])
-        self.assertEqual(len(json.loads(out.getvalue())['jobs']), 13)
+        self.assertEqual(len(json.loads(out.getvalue())['jobs']), 15)
         forbidden.assert_not_called()
         server.assert_not_called()
         browser.assert_not_called()
