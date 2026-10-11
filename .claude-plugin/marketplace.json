@@ -1,0 +1,16 @@
+{
+  "name": "agent-relay-feed",
+  "metadata": {
+    "description": "Agent Relay Feed plugins for external coding agents and background task monitoring."
+  },
+  "owner": {
+    "name": "ChronoRixun"
+  },
+  "plugins": [
+    {
+      "name": "agent-relay-feed",
+      "source": "./",
+      "description": "Spawn agents and keep an eye on your background tasks in Claude Code."
+    }
+  ]
+}

@@ -1,0 +1,247 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright 2026 ChronoRixun -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Relay Feed</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #677085; --line: #e3e6ec; --soft: #f0f2f6;
+  --green: #1f9d55; --amber: #c27c0e; --red: #d64545; --blue: #2f6fd6; --violet: #7b4fd1; --teal: #128a8a;
+  --code: #eef1f6; --shadow: 0 1px 2px rgba(20,30,50,.06), 0 4px 14px rgba(20,30,50,.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #8f98aa; --line: #262c38; --soft: #1d222c;
+    --green: #3fbf7f; --amber: #e3a23b; --red: #ef6b6b; --blue: #6c9cf0; --violet: #a789ee; --teal: #3cc2c2;
+    --code: #222836; --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #8f98aa; --line: #262c38; --soft: #1d222c;
+  --green: #3fbf7f; --amber: #e3a23b; --red: #ef6b6b; --blue: #6c9cf0; --violet: #a789ee; --teal: #3cc2c2;
+  --code: #222836; --shadow: none;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
+.mono, code { font-family: "Cascadia Mono", Consolas, ui-monospace, monospace; font-size: 12.5px; }
+code { background: var(--code); padding: 0 4px; border-radius: 4px; }
+header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line);
+  padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+h1 { font-size: 17px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+  background: var(--soft); border: 1px solid var(--line); font-size: 12.5px; white-space: nowrap; }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.pill.free .dot { background: var(--green); } .pill.agent .dot { background: var(--amber); }
+.pill.owner .dot { background: var(--blue); } .pill.unknown .dot { background: var(--red); }
+.spacer { flex: 1; }
+.muted { color: var(--muted); }
+button.link { background: none; border: 0; color: var(--blue); cursor: pointer; padding: 0; font: inherit; }
+main { padding: 16px; max-width: 1500px; margin: 0 auto; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 6px 0 10px; font-weight: 600; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); margin-bottom: 26px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card.warn { border-color: var(--amber); } .card.bad { border-color: var(--red); }
+.top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.name { font-weight: 650; font-size: 15.5px; margin-right: auto; overflow-wrap: anywhere; }
+.chip { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.m-sol { color: var(--amber); } .m-astra { color: var(--violet); } .m-kimi { color: var(--blue); } .m-other { color: var(--muted); }
+.chip.full { color: var(--red); } .chip.read { color: var(--teal); }
+.live { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 var(--green);
+  animation: pulse 2s infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 60%, transparent); }
+  70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+.metaline { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--muted); }
+.badge { font-size: 12px; padding: 1px 8px; border-radius: 6px; font-weight: 600; }
+.badge.amber { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
+.badge.red { background: color-mix(in srgb, var(--red) 16%, transparent); color: var(--red); }
+.badge.grey { background: var(--soft); color: var(--muted); font-weight: 500; }
+.note { background: var(--soft); border-radius: 8px; padding: 9px 11px; border-left: 3px solid var(--blue); }
+.note .txt { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.note.open .txt { -webkit-line-clamp: unset; display: block; }
+.note .when { font-size: 11.5px; color: var(--muted); margin-bottom: 2px; }
+.now { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; min-width: 0; }
+.now .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); flex: none; }
+.now .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.stats { display: flex; gap: 14px; font-size: 12.5px; color: var(--muted); flex-wrap: wrap; }
+.stats b { color: var(--ink); font-weight: 600; } .stats .fail b { color: var(--red); }
+.tl { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.tl li { display: grid; grid-template-columns: 62px 22px 1fr auto; gap: 6px; align-items: baseline;
+  padding: 4px 0; border-bottom: 1px dashed var(--line); font-size: 13px; min-width: 0; }
+.tl li:last-child { border-bottom: 0; }
+.tl .t { color: var(--muted); font-size: 11.5px; }
+.tl .i { text-align: center; }
+.tl .d { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tl .d .v { font-weight: 600; } .tl .d .x { color: var(--muted); }
+.tl li.msg .d { white-space: normal; color: var(--ink); font-style: italic; overflow-wrap: anywhere; }
+.tl li.err .d { color: var(--red); }
+.exit { font-size: 11px; color: var(--red); font-weight: 600; }
+.more { font-size: 11px; color: var(--muted); }
+details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+details pre, .result { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; font-size: 12.5px;
+  background: var(--soft); padding: 8px 10px; border-radius: 8px; max-height: 380px; overflow: auto; }
+.done { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.row { display: grid; grid-template-columns: 22px minmax(140px, 1.2fr) 120px 80px 70px 3fr; gap: 10px; padding: 8px 14px;
+  border-bottom: 1px solid var(--line); cursor: pointer; align-items: baseline; font-size: 13px; }
+.row:hover { background: var(--soft); }
+.row .sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.rowx { padding: 0 14px 12px 46px; border-bottom: 1px solid var(--line); }
+.empty { color: var(--muted); padding: 18px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; }
+@media (max-width: 720px) {
+  .row { grid-template-columns: 22px 1fr 70px; }
+  .row .c-model, .row .c-end, .row .sum { display: none; }
+  .tl li { grid-template-columns: 54px 20px 1fr auto; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Agent Relay Feed</h1>
+  <span id="pc"></span>
+  <span class="spacer"></span>
+  <span class="muted" id="upd">connecting…</span>
+  <button class="link" id="theme" title="Switch light / dark">◐</button>
+</header>
+<main>
+  <h2>Working now</h2>
+  <div id="running" class="grid"></div>
+  <h2>Finished <span class="muted" id="hrs"></span></h2>
+  <div id="finished" class="done"></div>
+</main>
+<script>
+const ICON = { read:'📄', search:'🔍', list:'📁', git:'⎇', test:'🧪', build:'🔨', game:'🎮', proc:'⚙️', write:'✏️',
+  copy:'📋', delete:'🗑️', hash:'#️⃣', run:'▶️', code:'🐍', misc:'·', message:'💬', files:'📝', error:'⚠️',
+  started:'🚀', session:'🔗', 'turn completed':'✅', other:'·' };
+const STATE = { done:'✅', failed:'❌', timeout:'⏱️', cancelled:'⏹️', lost:'❓' };
+const open = new Set(JSON.parse(safeGet('feed.open') || '[]'));
+let last = null;
+
+function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function safeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function md(s) {   // tiny, safe: `code` and **bold** only
+  return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+}
+function dur(s) {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return h ? `${h}h ${String(m).padStart(2,'0')}m` : m ? `${m}m ${String(x).padStart(2,'0')}s` : `${x}s`;
+}
+function ago(hms, now) {   // event stamps are HH:MM:SS local
+  if (!hms) return '';
+  const d = new Date(now * 1000), [h, m, s] = hms.split(':').map(Number);
+  const t = new Date(d); t.setHours(h, m, s, 0);
+  let diff = (d - t) / 1000; if (diff < -60) diff += 86400;
+  return dur(diff) + ' ago';
+}
+function model(j) {
+  const p = j.profile || '';
+  const cls = p.includes('sol') ? 'm-sol' : p.includes('astra') ? 'm-astra' : p.includes('kimi') ? 'm-kimi' : 'm-other';
+  const name = (j.label || p).replace('GPT-6.1-', '').replace('GPT-6-', '').replace(' Preview', '');
+  return `<span class="chip ${cls}">${esc(name)}</span>`;
+}
+function evRow(e) {
+  if (e.kind === 'command') {
+    const more = e.more ? ` <span class="more">+${e.more}</span>` : '';
+    return `<li title="${esc(e.raw)}"><span class="t mono">${e.t}</span><span class="i">${ICON[e.icon] || '·'}</span>` +
+      `<span class="d"><span class="v">${esc(e.verb)}</span> <span class="x">${esc(e.detail)}</span>${more}</span>` +
+      `<span>${e.rc ? `<span class="exit">exit ${e.rc}</span>` : ''}</span></li>`;
+  }
+  if (e.kind === 'message')
+    return `<li class="msg"><span class="t mono">${e.t}</span><span class="i">💬</span><span class="d">${md(e.text.length > 260 ? e.text.slice(0, 257) + '…' : e.text)}</span><span></span></li>`;
+  const cls = e.kind === 'error' ? 'err' : '';
+  return `<li class="${cls}"><span class="t mono">${e.t}</span><span class="i">${ICON[e.kind] || '·'}</span><span class="d"><span class="x">${esc(e.kind === 'files' ? 'Changed ' + e.text : e.text)}</span></span><span></span></li>`;
+}
+function card(j, now) {
+  const warn = [];
+  if (j.stalled) warn.push(`<span class="badge amber">quiet ${dur(j.idle)}</span>`);
+  if (j.loop) warn.push(`<span class="badge red">possible loop</span>`);
+  if (j.retries) warn.push(`<span class="badge grey">${j.retries} reconnects</span>`);
+  if (j.counts && j.counts.errors) warn.push(`<span class="badge red">${j.counts.errors} errors</span>`);
+  const cls = j.loop ? 'bad' : j.stalled ? 'warn' : '';
+  const mode = j.mode === 'full' ? '<span class="chip full">full access</span>' : j.mode === 'read' ? '<span class="chip read">read-only</span>' : '';
+  const c = j.current;
+  const nowLine = c ? `<div class="now"><span class="lbl">Now</span><span>${ICON[c.icon] || '·'}</span>` +
+    `<span class="what" title="${esc(c.raw)}"><b>${esc(c.verb)}</b> <span class="muted">${esc(c.detail)}</span></span>` +
+    `<span class="muted" style="flex:none;font-size:12px">${ago(c.t, now)}</span></div>` : '';
+  const isOpen = open.has(j.id);
+  const evs = (j.events || []).filter(e => !['session', 'turn completed'].includes(e.kind));
+  const shown = (isOpen ? evs : evs.slice(-12)).slice().reverse();
+  const k = j.counts || {};
+  return `<section class="card ${cls}">
+    <div class="top"><span class="live"></span><span class="name">${esc(j.name)}</span>${model(j)}${mode}</div>
+    <div class="metaline"><span>running ${dur(j.elapsed)}</span><span>last activity ${dur(j.idle || 0)} ago</span>${warn.join('')}</div>
+    ${j.now_msg ? `<div class="note ${isOpen ? 'open' : ''}" data-toggle="${esc(j.id)}"><div class="when">latest note · ${j.now_msg_t} · ${ago(j.now_msg_t, now)}</div><div class="txt">${md(j.now_msg)}</div></div>` : ''}
+    ${nowLine}
+    <div class="stats"><span><b>${k.commands || 0}</b> steps</span><span class="${k.failed ? 'fail' : ''}"><b>${k.failed || 0}</b> non-zero exits</span><span><b>${k.messages || 0}</b> notes</span><span><b>${k.files || 0}</b> file edits</span></div>
+    <ul class="tl">${shown.map(evRow).join('')}</ul>
+    <div class="metaline"><button class="link" data-toggle="${esc(j.id)}">${isOpen ? 'show less' : `show all ${evs.length} steps`}</button>
+      <span class="mono" title="${esc(j.cwd)}">${esc((j.cwd || '').split(/[\\/]/).slice(-2).join('/'))}</span><span class="mono">${esc(j.id)}</span></div>
+    ${j.progress && j.progress.length ? `<details><summary>progress file (last ${j.progress.length} lines)</summary><pre class="mono">${esc(j.progress.join('\n'))}</pre></details>` : ''}
+  </section>`;
+}
+function finishedRow(j) {
+  const end = j.finished ? new Date(j.finished * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
+  const first = (j.result || (j.errors || [])[0] || '').split('\n').find(l => l.trim()) || '';
+  const isOpen = open.has(j.id);
+  return `<div class="row" data-toggle="${esc(j.id)}"><span>${STATE[j.state] || '·'}</span><b>${esc(j.name)}</b>` +
+    `<span class="c-model">${model(j)}</span><span class="muted">${dur(j.elapsed)}</span><span class="muted c-end">${end}</span>` +
+    `<span class="sum">${esc(first.replace(/[#*`]/g, ''))}</span></div>` +
+    (isOpen ? `<div class="rowx"><div class="result">${md(j.result || (j.errors || []).join('\n') || '(no final message)')}</div>
+      <div class="metaline" style="margin-top:6px"><span class="mono">${esc(j.id)}</span><span class="mono">${esc(j.cwd)}</span>
+      <span>${(j.counts || {}).commands || 0} steps · state ${esc(j.state)}</span></div></div>` : '');
+}
+function pc(processes, enabled) {
+  if (!enabled) return '';
+  if (!processes.length) return `<span class="pill free"><span class="dot"></span>No watched process running</span>`;
+  return processes.map(p => {
+    const who = p.owner_kind || 'unknown';
+    const label = who === 'unknown' ? 'unknown owner' : p.who;
+    return `<span class="pill ${esc(who)}" title="${esc(p.path)}"><span class="dot"></span>${esc(p.name)}: ${esc(label)}</span>`;
+  }).join(' ');
+}
+function render(d) {
+  last = d;
+  const running = d.jobs.filter(j => j.state === 'running' || j.state === 'starting');
+  const done = d.jobs.filter(j => !(j.state === 'running' || j.state === 'starting'));
+  document.getElementById('pc').innerHTML = pc(d.processes || [], d.process_panel);
+  document.getElementById('running').innerHTML = running.length ? running.map(j => card(j, d.now)).join('')
+    : '<div class="empty">No agent is working right now.</div>';
+  document.getElementById('finished').innerHTML = done.length ? done.map(finishedRow).join('')
+    : '<div class="empty" style="border:0">Nothing finished recently.</div>';
+}
+document.addEventListener('click', ev => {
+  const t = ev.target.closest('[data-toggle]'); if (!t) return;
+  const id = t.getAttribute('data-toggle');
+  open.has(id) ? open.delete(id) : open.add(id);
+  safeSet('feed.open', JSON.stringify([...open]));
+  if (last) render(last);
+});
+document.getElementById('theme').onclick = () => {
+  const r = document.documentElement, dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const cur = r.dataset.theme || (dark ? 'dark' : 'light');
+  r.dataset.theme = cur === 'dark' ? 'light' : 'dark'; safeSet('feed.theme', r.dataset.theme);
+};
+{ const t = safeGet('feed.theme'); if (t) document.documentElement.dataset.theme = t; }
+let fails = 0;
+async function tick() {
+  try {
+    const r = await fetch('/api/jobs', {cache: 'no-store'});
+    const d = await r.json();
+    if (!window.getSelection || String(window.getSelection()).length === 0) render(d);
+    fails = 0;
+    document.getElementById('upd').textContent = 'live · ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    fails++;
+    document.getElementById('upd').textContent = 'feed server not answering' + (fails > 1 ? ` (${fails})` : '');
+  }
+  setTimeout(tick, 2500);
+}
+tick();
+</script>
+</body>
+</html>

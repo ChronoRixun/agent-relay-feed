@@ -1,0 +1,16 @@
+{
+  "name": "agent-relay-feed",
+  "version": "1.0.0",
+  "description": "Spawn agents and keep an eye on your background tasks in Claude Code.",
+  "author": {
+    "name": "ChronoRixun"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "agents",
+    "delegation",
+    "feed",
+    "codex",
+    "kimi"
+  ]
+}
