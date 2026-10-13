@@ -274,6 +274,8 @@ class Transcript:
 
     def record(self, now, stall_s, lost_s):
         mtime = self.mtime()
+        if self.last_line_at and mtime and mtime - self.last_line_at > lost_s:
+            mtime = None               # touched long after its last line: a copied or restored file, not activity
         last = max(self.last_line_at or 0, mtime or 0) or now
         quiet = now - last
         pending = bool(self.pending)
@@ -435,7 +437,15 @@ class ClaudeAgents:
             for tr in self.files.values():
                 notes = self.parents.get((tr.path.parent.parent, tr.session))
                 tr.killed_at = notes.killed.get(tr.agent_id) if notes else None
-            records = [tr.record(now, self.stall_s, self.lost_s) for tr in self.files.values()]
+            # A forked or restored session copies its subagent transcripts: show each agent once, preferring the
+            # copy with the newest activity, then the oldest file (the original).
+            best = {}
+            for tr in self.files.values():
+                rec = tr.record(now, self.stall_s, self.lost_s)
+                rank = (rec["last_activity"], -(tr.mtime() or 0))
+                if rec["agent_id"] not in best or rank > best[rec["agent_id"]][0]:
+                    best[rec["agent_id"]] = (rank, rec)
+            records = [rec for _, rec in best.values()]
         labels = {r["agent_id"]: r["label"] for r in records}
         out = []
         for r in records:

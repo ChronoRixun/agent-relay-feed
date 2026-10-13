@@ -199,6 +199,17 @@ class ReaderTests(unittest.TestCase):
                 else:
                     self.assertIsNone(rec['result'])
 
+    def test_copied_session_shows_each_agent_once_and_not_running(self):
+        t = NOW - 7 * 3600
+        lines = [prompt(t), tool(t + 1, 'Bash', dict(command='make'), 't1')]
+        with temporary_directory() as td:
+            original = Fixture(td).agent('a1', dict(agentType='general-purpose', description='old job'), lines, mtime=t + 2)
+            Fixture(td, session='1111-fork').agent('a1', dict(agentType='general-purpose', description='old job'), lines,
+                                                   mtime=NOW - 3000)
+            recs = reader(td).scan(NOW)
+            self.assertEqual(len(recs), 1)
+            self.assertEqual((recs[0]['state'], recs[0]['last_activity'], recs[0]['path']), ('lost', t + 2, str(original)))
+
     def test_result_keeps_first_lines_only(self):
         with temporary_directory() as td:
             text = '\n'.join(f'line {i}' for i in range(30))
