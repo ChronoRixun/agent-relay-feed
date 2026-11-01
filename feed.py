@@ -238,7 +238,35 @@ def task_name(meta, job_id):
     return Path(meta.get('cwd') or '').name or job_id
 
 
+_activity_cache = {}
+
+
 def parse_activity(path):
+    """Events and retry count for one activity log; re-parsed only when the file's size or mtime changes.
+
+    The page polls every few seconds and most of the 60 jobs shown are finished, so without this every poll
+    re-humanised thousands of unchanged commands (about 0.7 s of CPU per poll). A log written in the last two
+    seconds is not cached: a rewrite inside one timestamp tick could keep both its size and its mtime."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        _activity_cache.pop(str(path), None)
+        return _parse_activity(path)
+    key = (st.st_size, st.st_mtime_ns)
+    hit = _activity_cache.get(str(path))
+    if hit and hit[0] == key:
+        return hit[1], hit[2]
+    events, retries = _parse_activity(path)
+    if time.time() - st.st_mtime > 2:
+        if len(_activity_cache) >= 240:     # only the newest 60 jobs are shown; drop logs that scrolled away
+            _activity_cache.clear()
+        _activity_cache[str(path)] = (key, events, retries)
+    else:
+        _activity_cache.pop(str(path), None)
+    return events, retries
+
+
+def _parse_activity(path):
     events, retries = [], 0
     for line in D.read_text(path).splitlines():
         m = _LINE.match(line)
@@ -496,7 +524,9 @@ def snapshot(hours, demo=False):
     now = time.time()
     jobs = []
     if D.JOBS_ROOT.is_dir():
-        for jd in sorted((p for p in D.JOBS_ROOT.iterdir() if p.is_dir()), reverse=True)[:60]:
+        with os.scandir(D.JOBS_ROOT) as it:     # DirEntry.is_dir needs no extra stat per job folder on Windows
+            folders = [Path(e.path) for e in it if e.is_dir()]
+        for jd in sorted(folders, reverse=True)[:60]:
             try:
                 s = job_summary(jd, now)
             except Exception as e:      # one broken job must not blank the page

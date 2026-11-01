@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import os
 from tests.helpers import temporary_directory, windows_path
 import unittest
 from pathlib import Path
@@ -71,6 +72,26 @@ class HumanizerTests(unittest.TestCase):
             self.assertEqual(retries, 1)
             self.assertEqual([e['verb'] for e in events], ['git diff', 'Read'])
             self.assertEqual(events[0]['rc'], 1)
+
+    def test_unchanged_activity_is_not_parsed_again(self):
+        with temporary_directory() as td, patch.object(F, '_activity_cache', {}):
+            path = Path(td) / 'activity.log'
+            path.write_text('10:00:00  command (exit 0): git status\n', encoding='utf-8')
+            old = path.stat().st_mtime - 60
+            os.utime(path, (old, old))
+            first = F.parse_activity(path)
+            with patch.object(F, '_parse_activity', side_effect=AssertionError('parsed an unchanged log')):
+                self.assertEqual(F.parse_activity(path), first)
+            with path.open('a', encoding='utf-8') as f:     # an appended line shows on the next poll
+                f.write('10:00:05  command (exit 0): git log\n')
+            os.utime(path, (old + 1, old + 1))
+            events, _ = F.parse_activity(path)
+            self.assertEqual([e['verb'] for e in events], ['git status', 'git log'])
+            # a log written just now may be rewritten inside the same mtime tick, so it is never served from cache
+            path.write_text('10:00:00  command (exit 0): git diff\n10:00:05  command (exit 0): git log\n', encoding='utf-8')
+            self.assertEqual([e['verb'] for e in F.parse_activity(path)[0]], ['git diff', 'git log'])
+            path.write_text('10:00:00  command (exit 0): git fetch\n10:00:05  command (exit 0): git log\n', encoding='utf-8')
+            self.assertEqual([e['verb'] for e in F.parse_activity(path)[0]], ['git fetch', 'git log'])
 
 
 class ProcessTests(unittest.TestCase):
