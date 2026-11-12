@@ -28,7 +28,8 @@ omitting `--open`. Accept port/hours preferences by supplying `--port N` and
 The server binds to 127.0.0.1 unless the user's config sets `feed_host` or they ask for `--host`; never expose it publicly.
 The feed also lists this machine's native Claude Code subagents (Agent tool) from
 their transcripts unless `claude_agents_enabled` is false in the local config.
-The same server has two more pages: `/mission` (a glanceable view of every
-running agent) and `/evidence` (files that finished jobs cite as proof, for review).
+The same server has three more pages: `/mission` (a glanceable view of every
+running agent), `/orbit` (the same agents drawn as an orrery, for a second screen
+or a phone) and `/evidence` (files that finished jobs cite as proof, for review).
 The pages only read, unless the user set `feed_pin` in their config; with a PIN
 they can also answer a worker's question, send it a message or mark a job reviewed.

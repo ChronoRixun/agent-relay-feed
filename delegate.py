@@ -49,7 +49,8 @@ import nous
 import leases
 import notify
 import results
-from delegate_config import CONFIG, TRANSIENT, ignored_activity_path, repetition, shorten_paths, worker_command
+from delegate_config import (CONFIG, TRANSIENT, ignored_activity_path, lease_count, repetition, shorten_paths,
+                             worker_command)
 
 PROFILES = {
     "claude-api-opus": dict(backend="claude-api", model="claude-opus-5-5", effort="high",
@@ -103,6 +104,7 @@ WAIT_ANY_POLL_S = 3
 NOUS_SPEND_CHECK_S = 5
 ASK_POLL_S = 2
 TERMINAL = {"done", "failed", "timeout", "cancelled", "lost"}
+UNSANDBOXED = {"kimi"}          # backends whose read/write modes are instructions only (the Nous models run in Kimi)
 
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 CREATE_NO_WINDOW = 0x08000000
@@ -212,6 +214,16 @@ def agent_paths(profile, job_id):
                 activity=base / "activity" / f"{job_id}.log",
                 report=base / "reports" / f"{job_id}.md",
                 latest=base / "latest-report.md")
+
+
+def write_roots(jd, meta):
+    """Where a job may write besides its working directory: its --add-dir folders, its own job
+    and agent folders, the worker program's own folder, and the owner's `guard_allow_dirs`."""
+    roots = [*(meta.get("add_dirs") or []), jd, agent_paths(meta.get("profile", ""), jd.name)["base"],
+             *CONFIG["guard_allow_dirs"]]
+    if meta.get("backend") == "kimi":
+        roots += [meta.get("kimi_home") or "", os.environ.get("KIMI_CODE_HOME") or str(HOME / ".kimi-code")]
+    return [str(r) for r in roots if r]
 
 
 def job_title(meta, job_id):
@@ -567,7 +579,7 @@ class ActivityTail:
         self.dst = Path(meta["activity_file"])
         self.offset = 0
         self.session = None
-        self.wanted = set()     # resources this (sandboxed) worker is waiting to be granted
+        self.wanted = {}        # resource -> how many slots this (sandboxed) worker is waiting for
 
     def worker_said(self, text, starting=False, finished=False):
         verb, body = worker_command(text)
@@ -587,24 +599,24 @@ class ActivityTail:
             # slots for it; the worker's own command just waits to see the grant. Unsandboxed
             # workers do both themselves.
             if verb == "lease" and starting:
-                self.wanted.add(body)
+                self.wanted[body] = lease_count(text)
                 self.grant()
             elif verb == "lease" and finished:
-                self.wanted.discard(body)       # it stopped waiting; it asks again if it still wants it
+                self.wanted.pop(body, None)     # it stopped waiting; it asks again if it still wants it
             elif verb == "release" and finished:
-                self.wanted.discard(body)
-                leases.release(DELEGATE_ROOT, self.jd.name, body)
+                self.wanted.pop(body, None)
+                free_slots(self.jd.name, body)
 
     def grant(self):
         """Try to take every slot the worker is waiting for; leave the reason where its command can read it."""
         waiting = {}
-        for resource in sorted(self.wanted):
+        for resource, count in sorted(self.wanted.items()):
             try:
-                got = take_slot(resource, self.jd.name)
+                got = take_slot(resource, self.jd.name, count=count)
             except OSError as e:
                 got = dict(ok=False, reason=f"lease file unavailable: {e}")
             if got["ok"] or got.get("unknown"):
-                self.wanted.discard(resource)
+                self.wanted.pop(resource, None)
             if not got["ok"]:
                 waiting[resource] = got["reason"]
         save_json(self.jd / "lease.wait", waiting)
@@ -743,6 +755,13 @@ def finalize(jd, meta, status, state, rc, extra_errors=()):
         checked = dict(data=None, error=f"result check failed: {e!r}", findings=[], verdict=None, flags=0)
     if CONFIG["guard_enabled"]:
         guarded = results.guard(meta.get("mode"), read_text(meta.get("activity_file", "")).splitlines(), CONFIG["guard_patterns"])
+        if meta.get("backend") in UNSANDBOXED:
+            # nothing confines these workers, so what they wrote or deleted is read back from their tool calls
+            try:
+                guarded += results.outside_writes(read_text(jd / "events.jsonl").splitlines(), cwd=meta.get("cwd") or ".",
+                                                  allowed=write_roots(jd, meta))
+            except Exception as e:
+                guarded.append(dict(ok=False, text=f"GUARD: could not read back what this job wrote ({e!r})"))
         checked["findings"] = list(checked["findings"]) + guarded
         checked["flags"] += len(guarded)
     save_json(jd / "result.json", checked)
@@ -789,7 +808,7 @@ def finalize(jd, meta, status, state, rc, extra_errors=()):
     except Exception as e:
         status.setdefault("errors", []).append(f"could not write agent report: {e!r}")
     try:
-        leases.release(DELEGATE_ROOT, jd.name)     # a finished job holds nothing
+        free_slots(jd.name)     # a finished job holds nothing
     except OSError:
         pass
     try:
@@ -833,6 +852,12 @@ def _slot_word(name):
     return re.sub(r"\W", "_", name).upper()
 
 
+def lease_item(item):
+    """('game', 2) for a bg job's `--lease game:2`; one slot when no number is given."""
+    name, _, count = str(item).partition(":")
+    return name, int(count) if count.isdigit() and int(count) > 0 else 1
+
+
 def run_shell(jd, meta, status):
     """A `bg` job: one long command run outside the caller's session. It takes the slots it was
     given first (and keeps them for the whole run), writes all output to output.log, shows the
@@ -841,10 +866,11 @@ def run_shell(jd, meta, status):
     env = os.environ.copy()
     env["DELEGATE_JOB"] = jd.name
     command = meta["command"]
-    for res in sorted(meta.get("leases") or []):
-        journal(jd, "phase", f"waiting for slot: {res}")
+    for item in sorted(meta.get("leases") or []):
+        res, count = lease_item(item)
+        journal(jd, "phase", f"waiting for slot: {item}")
         while True:
-            got = take_slot(res, jd.name)
+            got = take_slot(res, jd.name, count=count)
             if got["ok"]:
                 break
             if got.get("unknown"):
@@ -854,10 +880,11 @@ def run_shell(jd, meta, status):
             if time.time() - status["started"] > meta.get("max_minutes", DEFAULT_MAX_MINUTES) * 60:
                 return "timeout", None, [f"never got a slot on {res}: {got['reason']}"]
             time.sleep(POLL_S)
-        value = str(got.get("value") or got["slot"])
-        env["DELEGATE_SLOT_" + _slot_word(res)] = value
-        fill = lambda s: s.replace("{" + res + "}", value)
-        command = fill(command) if isinstance(command, str) else [fill(c) for c in command]
+        for n, (slot, value) in enumerate(zip(got["slots"], got["values"]), 1):
+            value, nth = str(value or slot), "" if n == 1 else str(n)       # {game}, {game2}, ...
+            env["DELEGATE_SLOT_" + _slot_word(res) + ("_" + nth if nth else "")] = value
+            fill = lambda s: s.replace("{" + res + nth + "}", value)
+            command = fill(command) if isinstance(command, str) else [fill(c) for c in command]
     (jd / "command.json").write_text(json.dumps(command, indent=2), encoding="utf-8")
     journal(jd, "phase", "running the command")
     log_path = jd / "output.log"
@@ -1128,10 +1155,27 @@ def report(jd):
             out(tail.rstrip())
 
 
+WAITER = "waiter.flag"          # touched while someone waits on this one job in the foreground
+WAITER_FRESH_S = 90             # long enough to cover the gap between two repeated `wait <job>` calls
+
+
+def collected_by_owner(jd, now=None):
+    """Whether someone waited on exactly this job moments ago: its outcome is then theirs to read,
+    and `wait --any` leaves it to them (until the mark goes stale)."""
+    try:
+        return (time.time() if now is None else now) - (jd / WAITER).stat().st_mtime < WAITER_FRESH_S
+    except OSError:
+        return False
+
+
 def wait_for(jd, wait_s):
     deadline = time.time() + wait_s
-    while time.time() < deadline:
-        if effective_status(jd).get("state") in TERMINAL:
+    while True:
+        try:
+            (jd / WAITER).write_text(str(os.getpid()), encoding="utf-8")
+        except OSError:
+            pass
+        if effective_status(jd).get("state") in TERMINAL or time.time() >= deadline:
             break
         time.sleep(3)
     report(jd)
@@ -1159,7 +1203,7 @@ def build_prompt(args, meta, brief, preambles):
         parts.append(read_text(p).strip())
     parts.append(brief)
     if not meta.get("resume_session"):
-        parts.append(REPORT_RULES + "\n\n" + results.RULES + ("\n" + capture_rules() if os.name == "nt" else ""))
+        parts.append(REPORT_RULES + "\n\n" + results.RULES + "\n" + capture_rules())
     return "\n\n---\n\n".join(parts) + "\n"
 
 
@@ -1335,9 +1379,13 @@ def cmd_bg(args):
     if not Path(cwd).is_dir():
         sys.exit(f"error: working directory does not exist: {cwd}")
     wanted = [r.strip() for part in args.lease or [] for r in part.split(",") if r.strip()]
-    unknown = [r for r in wanted if r not in CONFIG["resources"]]
+    unknown = [r for r in wanted if lease_item(r)[0] not in CONFIG["resources"]]
     if unknown:
         sys.exit(f"error: no resource named {', '.join(unknown)} (known: {', '.join(sorted(CONFIG['resources'])) or 'none are configured'})")
+    for item in wanted:
+        name, count = lease_item(item)
+        if not re.fullmatch(r"[\w.-]+(:\d+)?", item) or count > CONFIG["resources"][name].get("slots", 1):
+            sys.exit(f"error: --lease {item}: write <resource> or <resource>:<how many>, at most its number of slots")
     shown = command if isinstance(command, str) else subprocess.list2cmdline(command)
     jd, meta = create_job("bg", BG_PROFILE, shown, "bg", cwd=cwd, mode="full", max_minutes=args.max_minutes,
                           name=args.name or one_line(shown, 50), extra=dict(command=command, leases=wanted))
@@ -1632,7 +1680,7 @@ def wait_any(wait_s):
         import claude_agents
         reader = claude_agents.ClaudeAgents()
     while True:
-        outcomes, questions, running = [], [], []
+        outcomes, questions, running, collecting = [], [], [], []
         if reader is not None and time.time() >= next_scan:
             next_scan = time.time() + NATIVE_SCAN_S
             try:
@@ -1647,19 +1695,22 @@ def wait_any(wait_s):
             if effective_status(jd).get("state") in TERMINAL:
                 # jobs from before the journal existed are history, not news
                 if jd.name in watched or (jd / "journal.jsonl").exists():
-                    outcomes.append(jd)
+                    # whoever is waiting on this very job in the foreground reads its outcome
+                    # there; it only becomes news here if they stop coming back for it
+                    (collecting if collected_by_owner(jd) else outcomes).append(jd)
             else:
                 running.append(jd)
                 watched.add(jd.name)
                 q = open_question(jd)
                 if q and read_text(jd / "asked.seen").strip() != repr(q.get("t")):
                     questions.append((jd, q))
-        if outcomes or questions or died or not (running or natives) or time.time() >= deadline:
+        if outcomes or questions or died or not (running or natives or collecting) or time.time() >= deadline:
             break
         try:
             start_ready()
         except OSError:
             pass
+        settle_slots()
         time.sleep(WAIT_ANY_POLL_S)
     for rec in died:
         out(f"DIED: {rec['id']} ({rec['agent_type'].rsplit(':', 1)[-1]}) \"{rec['label']}\" was cut off by a "
@@ -1684,8 +1735,9 @@ def wait_any(wait_s):
             (jd / "asked.seen").write_text(repr(q.get("t")), encoding="utf-8")
         except OSError:
             pass
-    if running or natives:
-        names = [jd.name for jd in sorted(running)] + [r["id"] for r in natives]
+    if running or natives or collecting:
+        names = ([jd.name for jd in sorted(running)] + [r["id"] for r in natives]
+                 + [f"{jd.name} (ended; the agent that waited on it is reading the result)" for jd in sorted(collecting)])
         out(f"STILL RUNNING: {len(names)} ({', '.join(names)})")
         out(f"NEXT: python \"{Path(__file__).as_posix()}\" wait --any --wait 43200   (one background call)")
     else:
@@ -1805,8 +1857,11 @@ def cmd_ask(args):
 
 
 def job_running(job_id):
+    """Whether a job that holds a slot is still going. A job this process cannot see at all (it
+    looks at another job folder: DELEGATE_JOBS_DIR, a test) counts as running, because taking a
+    live holder for dead frees its slots and puts shared state back under it."""
     jd = JOBS_ROOT / str(job_id)
-    return jd.is_dir() and effective_status(jd).get("state") not in TERMINAL
+    return not jd.is_dir() or effective_status(jd).get("state") not in TERMINAL
 
 
 _owner_programs = dict(at=0, list=[])
@@ -1837,10 +1892,39 @@ def owner_programs(names):
     return sorted(set(found))
 
 
-def take_slot(resource, holder, job=True):
+def take_slot(resource, holder, job=True, count=1):
     spec = CONFIG["resources"].get(resource) or {}
-    return leases.acquire(DELEGATE_ROOT, CONFIG["resources"], resource, holder, job=job,
+    return leases.acquire(DELEGATE_ROOT, CONFIG["resources"], resource, holder, job=job, count=count,
                           is_job_alive=job_running, blocked=lambda: owner_programs(spec.get("yield_to")))
+
+
+def settle_slots():
+    """Put shared state back for every resource whose last holder has left (see baseline.py).
+    Returns one line per restore; never raises, since callers are in the middle of other work."""
+    try:
+        done = leases.settle(DELEGATE_ROOT, job_running)
+    except Exception as e:
+        return [f"SHARED STATE: could not check ({e!r})"]
+    lines = []
+    for rec in done:
+        if rec["ok"]:
+            n = rec.get("changes", 0)
+            lines.append(f"SHARED STATE of {rec['resource']} put back and checked"
+                         + (f": {n} change{'s' if n != 1 else ''} undone" if n else ": nothing had changed"))
+        else:
+            lines.append(f"SHARED STATE of {rec['resource']} NOT RESTORED ({rec['error']}); tell the owner")
+    return lines
+
+
+def free_slots(holder, resource=None):
+    """Give slots back, then put shared state back if that was the last holder.
+    Returns (resources freed, lines about any restore)."""
+    freed = leases.release(DELEGATE_ROOT, holder, resource)
+    return freed, settle_slots()
+
+
+BASELINE_RULE = (" Its settings are shared by all holders: the slot saves them before the first holder and puts "
+                 "them back after the last, so do not save, restore or compare them yourself.")
 
 
 def resource_rules(job):
@@ -1850,12 +1934,14 @@ def resource_rules(job):
              "Never go ahead without the slot, and use exactly the value a grant gives you (for example a folder)."]
     for name, spec in CONFIG["resources"].items():
         n = spec.get("slots", 1)
-        lines.append(f"  - {name} ({n} slot{'s' if n != 1 else ''}): {spec.get('rule') or 'any use of it'}")
+        lines.append(f"  - {name} ({n} slot{'s' if n != 1 else ''}): {spec.get('rule') or 'any use of it'}"
+                     + (BASELINE_RULE if spec.get("baseline") else ""))
     lines += [f"  {command} lease --job {job} <name>",
               f"  {command} release --job {job} <name>",
               "lease waits for a free slot, so give it the longest timeout your shell tool allows; if it "
               "prints NOT YET, do work that does not need the slot, then run it again. Release a slot as "
-              "soon as you are done with it; anything you still hold is released when the job ends."]
+              "soon as you are done with it; anything you still hold is released when the job ends. "
+              "If one task needs several slots of a resource at once, add --count N."]
     return "\n".join(lines)
 
 
@@ -1876,22 +1962,28 @@ def cmd_lease(args):
             "without a slot; say so in your report.")
         return
     wait_s = CONFIG["ask_wait_seconds"] if args.wait is None else args.wait
+    count = max(1, getattr(args, "count", None) or 1)
     since, direct, reason = time.time(), True, None
     while True:
         got = None
         if direct:
             try:
-                got = take_slot(resource, holder, job=is_job)
+                got = take_slot(resource, holder, job=is_job, count=count)
             except OSError:
                 direct = False
         if got is None:
-            mine = leases.held(DELEGATE_ROOT, resource, holder, job_running)
+            mine = leases.holding(DELEGATE_ROOT, resource, holder, job_running)
             waiting = load_json(JOBS_ROOT / holder / "lease.wait", {}) or {}
-            got = (dict(ok=True, slot=mine.get("slot"), value=mine.get("value")) if mine
-                   else dict(ok=False, reason=waiting.get(resource) or "waiting for a free slot"))
+            got = (dict(ok=True, slots=[e.get("slot") for e in mine], values=[e.get("value") for e in mine])
+                   if len(mine) >= count else dict(ok=False, reason=waiting.get(resource) or "waiting for a free slot"))
         if got["ok"]:
-            value = f" Use: {got['value']}" if got.get("value") else ""
-            out(f"GRANTED: {resource} slot {got['slot']}.{value} Release it as soon as you are done.")
+            values = [v for v in got["values"] if v]
+            if count == 1:
+                out(f"GRANTED: {resource} slot {got['slots'][0]}." + (f" Use: {values[0]}" if values else "")
+                    + " Release it as soon as you are done.")
+            else:
+                out(f"GRANTED: {resource} slots {', '.join(str(n) for n in got['slots'])}."
+                    + (f" Use: {', '.join(values)}" if values else "") + " Release them as soon as you are done.")
             return
         reason = got["reason"]
         if got.get("unknown") or time.time() - since >= wait_s:
@@ -1907,8 +1999,10 @@ def cmd_release(args):
         out("release: give --job <your job id> or --as <name>")
         return
     try:
-        freed = leases.release(DELEGATE_ROOT, holder, args.resource)
+        freed, restored = free_slots(holder, args.resource)
         out(f"RELEASED: {', '.join(freed)}" if freed else "Nothing to release.")
+        for line in restored:
+            out(line)
     except OSError:
         out("ok: the slot is released for you.")       # sandboxed worker: its runner does it
 
@@ -1918,7 +2012,21 @@ def slot_lines(now=None):
     lines = []
     for r in leases.snapshot(DELEGATE_ROOT, CONFIG["resources"], job_running, now):
         holders = ", ".join(f"{h['holder']} ({fmt_secs(now - (h['since'] or now))})" for h in r["held"]) or "free"
-        lines.append(f"  {r['name']} {len(r['held'])}/{r['slots']}: {holders}")
+        line = f"  {r['name']} {len(r['held'])}/{r['slots']}: {holders}"
+        if r["waiting"]:
+            line += f" | {len(r['waiting'])} WAITING: " + ", ".join(
+                f"{w['holder']} ({fmt_secs(now - (w['since'] or now))})" for w in r["waiting"])
+        last = r["restored"]
+        if r["baseline"]:
+            line += (f" | shared state saved {fmt_secs(now - r['baseline'])} ago, "
+                     + ("put back when the last holder leaves" if r["held"] else "about to be put back"))
+            if last and not last.get("ok") and (last.get("restored") or 0) > r["baseline"]:
+                line += f" | LAST RESTORE FAILED: {last.get('error')}"
+        elif last and now - (last.get("restored") or 0) < 24 * 3600:
+            n = last.get("changes", 0)
+            line += (f" | shared state put back {fmt_secs(now - last['restored'])} ago"
+                     + (f" ({n} change{'s' if n != 1 else ''} undone)" if n else ""))
+        lines.append(line)
     return lines
 
 
@@ -1926,6 +2034,8 @@ def cmd_slots(_args):
     if not CONFIG["resources"]:
         out("No resources are configured (config key `resources`).")
         return
+    for line in settle_slots():
+        out(line)
     out("SLOTS:")
     for line in slot_lines():
         out(line)
@@ -2061,6 +2171,8 @@ def cmd_board(args):
         for line in reversed(queued):
             out(line)
     if CONFIG["resources"]:
+        for line in settle_slots():
+            out(line)
         out("SLOTS:")
         for line in slot_lines(now):
             out(line)
@@ -2346,13 +2458,19 @@ def set_reviewed(job, on=True):
     return bool(on)
 
 
-CAPTURE_RULES = ("Capture command (Windows), for any screenshot of a program's window you cite as evidence:\n"
+CAPTURE_RULES = ("Capture command, for any screenshot of a program's window you cite as evidence:\n"
                  "  {command} capture <absolute out.png> --process <name.exe>\n"
                  "(or --window \"<part of the title>\", or --foreground; `capture --list` shows the open windows). "
                  "It never activates or moves the window. It saves that window's client area and a record of what "
                  "it was of: title, program, real size, border, monitor. With several copies of one program "
                  "running, name yours with --pid. If it prints NOT CAPTURED or warns that the picture is blank, "
-                 "say so in your report instead of citing another picture.")
+                 "say so in your report instead of citing another picture.\n"
+                 "A program under Wine or Proton (or any Linux program) is captured through X: run the same "
+                 "command where that program runs, with its private display, for example "
+                 "`DISPLAY=:73 python3 <path to>/delegate.py capture <out.png> --process <name.exe>` (or add "
+                 "--display :73; --pid is then the Linux process id). It copies that one window with xwd and "
+                 "writes the same record. It refuses the WSLg desktop display :0; without a private display it "
+                 "prints NOT CAPTURED. Do not write your own xwd or screenshot script instead.")
 
 
 def capture_rules():
@@ -2362,21 +2480,48 @@ def capture_rules():
 def cmd_capture(args):
     """Screenshot one program's window, with a record of what it was of beside the image."""
     import capture
-    if args.list:
-        if os.name != "nt":
-            sys.exit("error: window capture is only supported on Windows")
-        for w in capture.pick(capture.list_windows()):
-            out(f"  {w['process'] or '?':24} {w['client'][0]}x{w['client'][1]:<6} {'front ' if w['foreground'] else '      '}"
-                f"{'borderless ' if w['borderless'] else ''}\"{one_line(w['title'], 80)}\"")
+    display = getattr(args, "display", None)
+    if not args.list:
+        if not args.out:
+            sys.exit("error: give the PNG file to write, or --list")
+        if Path(args.out).suffix.lower() != ".png":
+            sys.exit("error: the output file must end in .png")
+    if capture.under_wine():
+        # Windows' capture calls return a flat colour inside Wine: hand over to the machine's own
+        # python3, which copies the window through X.
+        argv = ["--list"] if args.list else [args.out]
+        for flag, value in (("--process", args.process), ("--window", args.window), ("--pid", args.pid)):
+            if value:
+                argv += [flag, str(value)]
+        argv += ["--foreground"] if args.foreground and not args.list else []
+        try:
+            code, text = capture.from_wine(argv, display)
+        except OSError as e:
+            code, text = 1, f"NOT CAPTURED: {e}."
+        out(text)
+        if code:
+            sys.exit(1)
         return
-    if not args.out:
-        sys.exit("error: give the PNG file to write, or --list")
+    if args.list:
+        try:
+            if os.name == "nt":
+                windows = capture.list_windows()
+            else:
+                display, reason = capture.x_display(display)
+                if display is None:
+                    sys.exit(f"error: {reason}")
+                windows = capture.x_list_windows(display)
+        except OSError as e:
+            sys.exit(f"error: {e}")
+        for w in capture.pick(windows):
+            out(f"  {w['process'] or '?':24} {w['client'][0]}x{w['client'][1]:<6} {'front ' if w['foreground'] else '      '}"
+                f"{'borderless ' if w['borderless'] else ''}{'pid ' + str(w['pid']) + ' ' if w.get('display') and w['pid'] else ''}"
+                f"\"{one_line(w['title'], 80)}\"")
+        return
     target = Path(args.out).expanduser()
-    if target.suffix.lower() != ".png":
-        sys.exit("error: the output file must end in .png")
     try:
         got = capture.capture(str(target), process=args.process, title=args.window, pid=args.pid,
-                              foreground=args.foreground, method=args.method)
+                              foreground=args.foreground, method=args.method, display=display)
     except OSError as e:
         got = dict(ok=False, reason=str(e), windows=[])
     if not got["ok"]:
@@ -2392,7 +2537,9 @@ def cmd_capture(args):
             "displayed, but only shows this window if it is in front, which the helper never arranges.)")
     if got["other_matches"]:
         out(f"NOTE: {got['other_matches']} other window(s) also matched; the one in front (else the largest) was taken.")
-    cite = dict(path=got["path"], shows="<what it proves>", width=got["width"], height=got["height"], process=got["process"])
+    # a WSL path under /mnt/<drive>/ is cited the way the checks on the Windows side open it
+    cite = dict(path=got.get("host_path") or got["path"], shows="<what it proves>", width=got["width"],
+                height=got["height"], process=got["process"])
     out(f"RECORD: {capture.record_path(got['path'])}")
     out(f"CITE IT AS: {json.dumps(cite)}")
 
@@ -2615,6 +2762,7 @@ def main():
     le.add_argument("--job")
     le.add_argument("--as", dest="holder", help="holder name when not running inside a job")
     le.add_argument("--wait", type=float)
+    le.add_argument("--count", type=int, default=1, help="how many slots of the resource (all or none)")
     le.add_argument("resource")
     le.set_defaults(fn=cmd_lease)
 
@@ -2630,7 +2778,8 @@ def main():
     bg.add_argument("--name", help="short title for the board, feed and alerts")
     bg.add_argument("--cwd")
     bg.add_argument("--lease", action="append", metavar="RESOURCE",
-                    help="take this slot before starting and hold it until the command ends; repeatable")
+                    help="take this slot before starting and hold it until the command ends; repeatable; "
+                         "NAME:2 takes two slots of it")
     bg.add_argument("--shell", choices=["none", "bash", "powershell", "cmd"], default="none",
                     help="hand the command line to a shell (needed for pipes and redirects)")
     bg.add_argument("--max-minutes", type=int, default=BG_MAX_MINUTES)
@@ -2649,6 +2798,8 @@ def main():
     cp.add_argument("--foreground", action="store_true", help="the window that is in front right now")
     cp.add_argument("--method", choices=["auto", "screen", "window"], default="auto",
                     help="screen: copy what is displayed (window must be in front); window: let the window draw itself")
+    cp.add_argument("--display", help="X display of a Linux, Wine or Proton program (default: DISPLAY); "
+                                      "never the WSLg desktop :0")
     cp.add_argument("--list", action="store_true", help="list the windows that can be captured")
     cp.set_defaults(fn=cmd_capture)
 

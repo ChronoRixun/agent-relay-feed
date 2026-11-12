@@ -163,6 +163,8 @@ A relay job that fails with a connection error (a dropped stream, a certificate 
 
 **Guard flags.** When a job ends, its activity log is scanned for things that usually need the owner's say-so: software installs (`pip install`, `npm install -g`, `winget install`, ...), commands that publish (`git push`, `gh release|pr|issue create`, ...), and file changes in a read-only job. Each becomes a flag beside the verdict, with an example command. It reports after the fact and cannot stop anything, and a brief may have allowed it, so a flag means "check", not "wrong". `guard_patterns` adds rules; `guard_enabled: false` turns it off.
 
+**Writes outside the job's folders (Kimi and Nous jobs).** These workers have no sandbox, so where they may write is only an instruction. When such a job ends, its tool calls are read back and any file written or deleted outside the job's working directory, its `--add-dir` folders, its own delegate job and agent folders, the worker program's own folder and the system temp folder is flagged, with up to three paths and what wrote them: `GUARD: wrote or deleted outside the job's folders (2 paths), e.g. d:/other/main.c (by the Edit tool); ...`. File tools give exact paths. Shell commands are read by rule of thumb: absolute paths that follow a deleting, writing or moving command, the destination of a copy, a redirect, `git -C <repo>` with a subcommand that changes the checkout, and `delegate.py save` or `capture`. Reading elsewhere is never flagged. Relative paths, and paths a script builds while it runs, are not seen, so no flag is not proof that nothing was touched. To allow a folder for one job, start it with `--add-dir <folder>`; to allow one for every job (a shared save folder, say), list it in `guard_allow_dirs`.
+
 **Spend.** `board`, the feed and mission control show the Claude API spend recorded this calendar month, against `claude_api_monthly_usd` if you set one. Other providers' quotas are not visible to this tool.
 
 **Digest.** `python delegate.py digest --hours 12` prints what finished while you were away, sorted into what is waiting for an answer, what needs a look (failed or flagged), what is yours to do, and what was left open; `--send` also pushes it through your alerts. Schedule it with your operating system's task scheduler for a morning summary.
@@ -223,16 +225,22 @@ On a machine that several agents and its owner share, the `resources` config key
 "resources": {
   "build":     {"slots": 1, "rule": "any compiler or full test-suite run"},
   "test-copy": {"slots": 2, "values": ["/work/copy-1", "/work/copy-2"],
-                "yield_to": ["TheApp.exe"], "rule": "launching the application under test"}
+                "yield_to": ["TheApp.exe"], "rule": "launching the application under test",
+                "baseline": {"registry": ["HKCU\\Software\\Vendor\\TheApp"],
+                             "files": ["%LOCALAPPDATA%/TheApp/last-session.txt"]}}
 }
 ```
 
-Every job's prompt then lists these with their rules and tells the worker to run `delegate.py lease --job <id> <name>` before such work and `release` afterwards. `lease` waits for a free slot and prints `GRANTED` (with the slot's value, such as the folder to use) or `NOT YET` with the reason. Slots a job still holds are freed when it ends, and a holder that died loses its slots. While a program listed in `yield_to` is running and is not an agent's own (as the feed's process watcher judges it), nobody new is granted that resource. Anything outside a relay job, such as a Claude Code subagent, takes part with `lease --as <name> <resource>`; those slots expire after three hours unless leased again.
+Every job's prompt then lists these with their rules and tells the worker to run `delegate.py lease --job <id> <name>` before such work and `release` afterwards. `lease` waits for a free slot and prints `GRANTED` (with the slot's value, such as the folder to use) or `NOT YET` with the reason. Slots a job still holds are freed when it ends, and a holder that died loses its slots. While a program listed in `yield_to` is running and is not an agent's own (as the feed's process watcher judges it), nobody new is granted that resource. Anything outside a relay job, such as a Claude Code subagent, takes part with `lease --as <name> <resource>`; those slots expire after three hours unless leased again. A task that needs several slots of one resource at once (a host and a guest copy) asks with `lease --count 2`: it gets all of them or none.
 
 ```sh
-python delegate.py slots          # who holds what; also shown by `board` and on the feed
+python delegate.py slots          # who holds what, for how long, and who is waiting; also on `board` and the feed
 python delegate.py release --job <job_id> build     # take a slot back by hand
 ```
+
+`slots` and `board` show how long each holder has had its slot and who was refused and is still asking (`build 1/1: job-a (35m) | 2 WAITING: job-b (12m), reviewer (3m)`), so a long holder is easy to spot.
+
+**Shared state (`baseline`).** Some programs keep settings in one place for the whole machine, such as a registry key or a file in the user's profile, so every copy under test reads and writes the same ones. A holder that saves those settings, runs, restores them and compares can then be broken by any other holder, and the only cure is to run one at a time. A resource's `baseline` moves that job to the slots instead: the named registry keys (Windows; at least two levels below `HKCU` or `HKLM`) and files are saved when the first holder is granted a slot, later holders simply join, and once the last holder has gone (released, ended, or died) the state is put back, read again and compared. Only what differs is written. Holders run side by side and never save, restore or compare that state themselves; their prompt says so. `slots` shows `shared state saved 35m ago` while it is held and `shared state put back 2m ago (1 change undone)` afterwards; a restore that fails is retried at every later check and shown as `NOT RESTORED`. The saved copy is `baselines/<resource>.json` in the delegate folder and the outcome of the last restore `baselines/<resource>.last.json`. Limits: if nobody runs `slots`, `board`, `wait --any`, a release or the feed after the last holder died, the restore waits until someone does; holders that were already running when `baseline` was configured keep their slots, and nobody new is granted one until they have finished, so that a half-changed state is never saved (if one of them keeps its slot for a long time without using the resource, release that slot by hand once you are sure nothing is running); and whatever the owner's own program writes to that state while agents hold slots is put back too.
 
 This is cooperative: it tells workers when they may go ahead and gives each its own slot, but it cannot stop a worker that ignores its instructions, and a slot that is already held is not taken away when the owner starts one of the `yield_to` programs.
 
@@ -245,18 +253,21 @@ python delegate.py bg --name "200 boot loops" --lease test-copy --lease build --
 python delegate.py bg --shell powershell -- "Get-ChildItem big | Remove-Item -Recurse"    # pipes need a shell
 ```
 
-The command starts detached like any job's runner, so it outlives the agent's session. It takes the slots named with `--lease` before it starts and holds them until it ends; `{name}` in the command is replaced by that slot's value (or its number), and `DELEGATE_SLOT_<NAME>` and `DELEGATE_JOB` are set in its environment. All output goes to `output.log` in the job folder, the newest lines show as activity on the feed, and the job ends as `done` (exit code 0) or `failed`, with the exit code and the last 40 lines of output as its result. It is on `board`, the feed and mission control, `cancel` stops it, `--max-minutes` (default 600) limits it, and `wait --any` reports it exactly once. An agent that needs the result runs `wait <job_id>` in the foreground; one that does not simply ends its turn.
+The command starts detached like any job's runner, so it outlives the agent's session. It takes the slots named with `--lease` before it starts and holds them until it ends; `{name}` in the command is replaced by that slot's value (or its number), and `DELEGATE_SLOT_<NAME>` and `DELEGATE_JOB` are set in its environment. `--lease test-copy:2` takes two slots of one resource; the second is `{test-copy2}` and `DELEGATE_SLOT_TEST_COPY_2`. All output goes to `output.log` in the job folder, the newest lines show as activity on the feed, and the job ends as `done` (exit code 0) or `failed`, with the exit code and the last 40 lines of output as its result. It is on `board`, the feed and mission control, `cancel` stops it, `--max-minutes` (default 600) limits it, and `wait --any` reports it exactly once. An agent that needs the result runs `wait <job_id>` in the foreground; one that does not simply ends its turn. While an agent is waiting on a job that way, the outcome is its to read: `wait --any` does not also report it, unless that agent stops coming back for 90 seconds.
 
 ### Screenshots with a record: `capture`
 
-The claim checks can tell that an image exists and has the stated size, not what it is a picture of. `capture` (Windows) closes most of that gap:
+The claim checks can tell that an image exists and has the stated size, not what it is a picture of. `capture` closes most of that gap:
 
 ```sh
 python delegate.py capture D:/work/menu.png --process TheApp.exe    # or --window "<title text>", --pid <n>, --foreground
 python delegate.py capture --list                                   # the windows it can see
+DISPLAY=:73 python3 delegate.py capture /work/menu.png --process TheApp.exe    # a Wine, Proton or Linux program
 ```
 
 It saves the client area of that program's window and writes `menu.png.capture.json` beside it: window title, program, real pixel size, whether the window had a border, the monitor's size and whether the window fills it, whether it was in front, and a hash of the image. It never activates or moves the window: a window that is in front is copied off the screen, a covered one is asked to draw itself, and if one way gives a flat colour the other is tried. A program that ignores Windows display scaling is captured at the size it actually renders, and the stretched on-screen size is recorded. An evidence entry may then say `"process": "TheApp.exe"`, `"window": "<title text>"`, `"borderless": true` or `"fullscreen": true`; the result checks compare those (and the word "borderless" in `shows`) with the record and flag a picture of another program or window, a window that had a border, a blank capture, and an image that was cropped or edited after capture. A `process` or `borderless` claim on an image with no record is flagged as uncheckable. Unflagged screenshots are listed in the result summary as `SCREENSHOT: captured from ...`, and the Review page shows the same line under each image. Some programs draw nothing into a background capture; the helper says so instead of saving a wrong picture as proof.
+
+**Wine, Proton and Linux programs.** Windows' own capture calls return a flat colour when they are made inside Wine, so there the window is captured through X instead. Run the command where the program runs, with that program's X display in `DISPLAY` (or `--display :73`): it finds the window with `xwininfo` and `xprop` by title, program or Linux process id, copies that one window with `xwd -id`, converts it to PNG pixel for pixel (no crop, no scaling) and writes the same record, with `"method": "xwd"` and the display. It needs `xwininfo`, `xprop` and `xwd` (packages `x11-utils` and `x11-apps`) and no other package. The command may be run with the machine's own `python3` or with a Windows Python inside Wine; the latter hands over to `python3`. Under WSL it refuses display `:0`, which is the desktop the machine's owner is using, and with no display set it prints `NOT CAPTURED` with the reason. A path under `/mnt/<drive>/` is cited in its Windows spelling, so the result checks on the Windows side find the image and its record, and they treat it like any other capture. One difference: a Wine program can draw its own title bar inside its X window, so whether such a window was borderless cannot be read from X; that claim is then reported as unchecked instead of being confirmed or flagged.
 
 ### Writing a file when the Write tool is refused: `save`
 
@@ -355,6 +366,24 @@ Badges and indicators:
 
 `/mission` on the feed server is a second view of the same data, built for a glance from across the room: a tile per running agent (stage, a ring that drains as the agent goes quiet, the step it is on, slots it holds), a timeline with one track per agent showing each stage it named, questions and their answers, recent steps and how finished jobs ended, and a running log of stage changes, questions and outcomes across all agents. A waiting question is shown as a banner. Open `/mission?demo` to see it with made-up data.
 
+### Orbit
+
+`/orbit` draws the same data as an orrery, to leave open on a second screen or check on a phone. One rule holds for the whole picture: clockwise from 12 o'clock means time passed.
+
+![Orbit](docs/orbit.png)
+
+The screenshot shows invented demo jobs.
+
+- **The centre is this machine**: the clock and how many agents are in flight. When its owner runs a program that agents give way to (a resource's `yield_to`), the centre turns amber and names it, the closed stations are marked, and a waiting beam stops at a stop bar.
+- **Rings are who does the work**: Claude Code subagents, Codex, Kimi, Nous credits, Claude API credits when used, and background commands.
+- **Planets are running agents.** One lap is the job's time limit (an hour for subagents, which have none), so the trail behind a planet is how much of its time it has used; the shaded wedge before the start line is where wrap-up warnings begin, and small notches on a trail are the stages the agent named. A solid disc is working, a hollow dimmed one is quiet, a broken red ring was cut off by a connection error and waits to be resumed.
+- **An agent that asks a question** becomes a flare with a line to a box that holds the question, so it is the first thing seen.
+- **Stations are the shared resources** with one square per slot. A solid beam joins an agent to a slot it holds, a dashed one to a slot it is waiting for; beams run out from the planet and round a lane, never across the centre. A small vault mark means that resource's shared state is saved.
+- **The outer belt holds finished jobs** of the last six hours by how long ago they ended: a dot passed, a diamond needs a look, a cross failed.
+- **Pulses**: when an agent runs something, a short comet falls from its planet into the centre (or along its beam, if it holds a slot); a new stage adds a ripple.
+
+Clicking a planet, a queued job or a belt marker opens a card with its stage, time used against its limit, last activity and slots; with `feed_pin` set, the card can answer a question or send a message. On a narrow screen the labels are dropped and the questions, spend and a list of agents sit under the orrery. It honours the system's reduced-motion setting. `/orbit?demo` shows invented data (`?demo=playing`, `?demo=quiet` and `?demo=crowd` show other states) and sends nothing.
+
 ### Review page (evidence gallery)
 
 `/evidence` on the feed server shows every file that recently finished jobs cite as evidence in their result blocks, grouped by job: each image beside the claim it is meant to prove, with its real pixel size (in red if it differs from the claimed size), a warning if the file is missing or older than the job, and the file's path. Jobs that need a look (failed, a verdict other than a clean pass, or flagged claims) are listed too even when they cite no evidence, with the flagged claims spelled out, and come first. **Mark reviewed** (it needs `feed_pin`) records that you have dealt with a job: it stops counting under *need a look* on mission control and in `digest`, on every device. `python delegate.py reviewed <job_id>` does the same from a terminal, and `--undo` takes it back. Click an image to see it full screen at fit or actual size; any item can be marked as looked at in that browser. Non-image evidence is shown as the start of the file. The automatic checks can say that a screenshot exists and has the claimed size; only looking at it tells you whether it shows the right thing, and this page is for that. Files are served only if a job's result block names them; like the rest of the feed the page has no login, so anyone who can reach the feed can see them. A Claude Code subagent is listed too if its final message ends with a result block (`python delegate.py result-format` prints the format to put in its brief).
@@ -420,13 +449,14 @@ Generic example (adapt the paths and executable names):
 | `notify_on` | all four | Which events alert: `question`, `failed`, `flagged`, `done`. |
 | `notify_detail` | `true` | `false` sends only the job's name and the kind of event. |
 | `notify_link` | `""` | Address an alert opens, such as your feed's `/mission` page. |
-| `resources` | `{}` | Shared resources and their slots; see "Slots for shared resources". |
+| `resources` | `{}` | Shared resources and their slots (`slots`, `values`, `yield_to`, `rule`, `baseline`); see "Slots for shared resources". |
 | `codex_exec_yield_ms` | `0` | Milliseconds a Codex script may run before handing back to the model unasked (Codex's default is 30000); `0` leaves it alone. A larger value saves model requests while a worker waits. |
 | `codex_mcp_allow` | `[]` | MCP server names from your Codex config that relay jobs may load; every other server is switched off. Add `codex_apps` to keep ChatGPT app connectors. |
 | `codex_plugins_allow` | `[]` | Codex plugin names (as written in your Codex config, for example `name@source`) that relay jobs may load; every other plugin is switched off. |
 | `checkpoint_minutes` | `10` | Minutes before a job's time limit at which the worker is told to wrap up; `0` = no warning. |
 | `guard_enabled` | `true` | Flag installs, publishing commands and read-only violations when a job ends. |
 | `guard_patterns` | `[]` | Extra guard rules: `[{"pattern": "<regex>", "text": "<what it means>"}]`. |
+| `guard_allow_dirs` | `[]` | Folders every unsandboxed (Kimi or Nous) job may write besides its own, without a flag. |
 | `claude_api_monthly_usd` | `0` | Monthly Claude API budget shown beside the month's spend; `0` = no budget. |
 | `nous_api_key_file` | `~/.claude/delegate/nous-api-key.txt` | File holding only your Nous Portal API key. |
 | `nous_max_usd_per_job` | `3.0` | Spend cap of one Nous job unless `run --max-usd` sets another; `0` = no cap. |

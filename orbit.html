@@ -1,0 +1,764 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright 2026 ChronoRixun -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbit · Agent Relay Feed</title>
+<style>
+:root {
+  --bg: #060a12; --panel: #0c1322; --askpanel: #120f24; --line: rgba(120, 190, 255, .16); --line2: rgba(120, 190, 255, .3);
+  --ink: #e8eef8; --mid: #aab6cc; --muted: #7f8da6; --dim: #4c5870; --link: #63d6ff; --ask: #b592ff; --amber: #f2b84b;
+  --red: #ff6b6b; --pass: #6fbfa4;
+  --sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Mono", Consolas, ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13.5px/1.45 var(--sans); display: flex; flex-direction: column;
+  min-height: 100vh; overflow-x: hidden; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 26px; min-height: 52px; padding: 6px 20px;
+  border-bottom: 1px solid var(--line2); z-index: 3; background: var(--bg); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: .22em; font-size: 14px; }
+.brand svg { width: 22px; height: 22px; }
+.stats { display: flex; flex-wrap: wrap; gap: 4px 24px; }
+.stat { display: flex; align-items: center; gap: 8px; color: inherit; }
+.stat svg { width: 16px; height: 16px; flex: none; }
+.stat b { font: 600 22px/1 var(--mono); }
+.stat span { font-size: 11px; letter-spacing: .16em; color: var(--muted); text-transform: uppercase; }
+.stat.zero b { color: var(--muted); }
+#chip { display: none; padding: 4px 12px; border: 1.5px solid var(--amber); border-radius: 999px; color: var(--amber);
+  font-size: 11px; font-weight: 700; letter-spacing: .07em; }
+#chip.on { display: block; }
+#chip b { font: 600 12px var(--mono); color: var(--ink); letter-spacing: 0; margin-left: 6px; }
+.grow { flex: 1; }
+.right { display: flex; align-items: center; gap: 20px; font-size: 13.5px; color: var(--muted); }
+#stage { position: relative; flex: 1 1 auto; min-height: 460px; }
+#sky { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#card { position: absolute; right: 22px; top: 22px; width: 392px; max-width: calc(100% - 28px); padding: 20px 20px 18px;
+  background: var(--panel); border: 1px solid var(--line2); border-radius: 12px; display: none; z-index: 2; }
+#card.on { display: block; } #card.asking { border-color: var(--ask); }
+#card .state { display: flex; align-items: center; gap: 9px; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+#card .state svg { width: 15px; height: 15px; }
+#card h3 { margin: 8px 0 10px; font-size: 20px; font-weight: 600; overflow-wrap: anywhere; }
+.chip { display: inline-block; padding: 2px 10px; border: 1.2px solid var(--dim); border-radius: 999px; font-size: 12px; margin-right: 6px; }
+#card hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+#card dl { display: grid; grid-template-columns: 108px 1fr; gap: 12px 8px; margin: 0; }
+#card dt { color: var(--muted); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; padding-top: 2px; }
+#card dd { margin: 0; overflow-wrap: anywhere; } #card dd small { display: block; color: var(--muted); font-size: 12px; }
+.lap { grid-column: 1 / -1; height: 5px; border-radius: 3px; background: rgba(120, 190, 255, .14); position: relative; overflow: hidden; }
+.lap i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+.lap u { position: absolute; right: 0; top: 0; bottom: 0; background: repeating-linear-gradient(90deg, var(--mid) 0 2px, transparent 2px 5px); opacity: .7; }
+#card .x { position: absolute; right: 12px; top: 10px; border: 0; background: none; color: var(--muted); font-size: 20px; cursor: pointer; }
+.qbox { margin-top: 14px; padding: 13px 14px; border: 1.5px solid var(--ask); border-radius: 10px; background: var(--askpanel); }
+.qbox .h { color: var(--ask); font-size: 11px; font-weight: 700; letter-spacing: .14em; }
+.qbox .q { font-size: 14px; margin: 5px 0 10px; overflow-wrap: anywhere; }
+form[data-send] { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+form[data-send] textarea, form[data-send] input { flex: 1 1 180px; min-width: 0; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--line2);
+  background: rgba(6, 10, 18, .8); color: var(--ink); font: inherit; }
+form[data-send] textarea { height: 62px; resize: vertical; flex-basis: 100%; }
+form[data-send] button { margin-left: auto; padding: 9px 16px; border-radius: 8px; border: 0; background: var(--ask); color: #140f24; font: inherit;
+  font-weight: 600; cursor: pointer; min-height: 40px; }
+form[data-send="tell"] button { background: rgba(99, 214, 255, .16); color: var(--ink); border: 1px solid var(--line2); }
+.how { color: var(--muted); font-size: 12px; margin-top: 8px; overflow-wrap: anywhere; }
+#below { display: none; padding: 0 12px 70px; }
+#asks { display: grid; gap: 10px; }
+#asks .qbox { margin-top: 0; } #asks .name { font-size: 14px; font-weight: 600; margin-top: 4px; }
+#fuel { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0 4px; font-size: 12.5px; }
+#fuel div.row { display: flex; justify-content: space-between; } #fuel .bar { height: 4px; border-radius: 2px; background: rgba(120, 190, 255, .14); margin-top: 5px; }
+#fuel .bar i { display: block; height: 100%; border-radius: 2px; }
+#list h4 { margin: 16px 0 2px; font-size: 11px; letter-spacing: .14em; color: var(--muted); font-weight: 600; }
+#list button { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; width: 100%; min-height: 44px; padding: 5px 0; border: 0;
+  border-bottom: 1px solid var(--line); background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+#list button.on { background: rgba(120, 190, 255, .07); }
+#list b { font-weight: 600; display: block; } #list small { color: var(--muted); font-size: 12px; }
+#list svg { width: 14px; height: 14px; }
+.tabs { display: none; position: fixed; left: 0; right: 0; bottom: 0; height: 52px; background: var(--bg); border-top: 1px solid var(--line2);
+  align-items: center; justify-content: space-around; z-index: 4; font-size: 13.5px; }
+.tabs b { color: var(--ink); font-weight: 600; }
+@media (max-width: 699px) {
+  .top { padding: 4px 14px; gap: 2px 10px; } .right { display: none; }
+  .stats { width: 100%; justify-content: space-between; gap: 0; padding: 4px 0 6px; }
+  .stat { flex-direction: column; gap: 3px; } .stat svg { display: none; } .stat b { font-size: 18px; }
+  .stat span { letter-spacing: 0; text-transform: none; }
+  #stage { flex: 0 0 auto; min-height: 0; height: min(100vw, 62vh); }
+  #card { position: static; width: auto; max-width: none; margin: 0 12px 10px; }
+  #below, .tabs { display: block; } .tabs { display: flex; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" style="color:var(--link)">
+      <path d="M12 2.5a9.5 9.5 0 1 0 9.5 9.5" opacity=".9"/><circle cx="12" cy="12" r="3" stroke="#e8eef8"/>
+      <circle cx="19" cy="17.6" r="1.8" fill="currentColor" stroke="none"/></svg>
+    ORBIT
+  </div>
+  <div class="stats" id="stats"></div>
+  <div id="chip"></div>
+  <span class="grow"></span>
+  <div class="right"><span id="upd">connecting…</span><a href="/">Feed</a><a href="/mission">Mission control</a><a href="/evidence">Review</a></div>
+</header>
+<div id="stage">
+  <canvas id="sky" aria-label="Orrery of running agents. The same information is on the Feed and Mission control pages."></canvas>
+  <div id="card"></div>
+</div>
+<div id="below"><div id="asks"></div><div id="fuel"></div><div id="list"></div></div>
+<nav class="tabs"><b>Orbit</b><a href="/">Feed</a><a href="/mission">Mission control</a><a href="/evidence">Review</a></nav>
+<script>
+// The machine as an orrery. One rule for the whole picture: clockwise from 12 o'clock means time
+// passed. Every mark stands for something in the feed's data:
+//   centre   = this PC: the clock, agents in flight, and whether its owner runs a program agents give way to
+//   rings    = who does the work (the billing route); planets = running agents; one lap = the job's time limit
+//   stations = shared resources and their slots; a solid beam = holding a slot, a dashed one = waiting for it
+//   belt     = jobs that finished in the last six hours, by how long ago
+// Lines run radially or along a circle, never across the centre.
+const DEMO = new URLSearchParams(location.search).get('demo');
+const C = {bg: '#060a12', stationFill: '#0b1220', askPanel: '#120f24', ink: '#e8eef8', mid: '#aab6cc', muted: '#7f8da6', dim: '#4c5870',
+  ask: '#b592ff', amber: '#f2b84b', red: '#ff6b6b', pass: '#6fbfa4', station: '#9fb2d0', beam: '#dfe8f7', sun: '#cfe0ff'};
+const G = {sun: .118, ringIn: .245, ringOut: .605, park: .04, cordon: .652, lane: .672, laneStep: .012, station: .785, belt: .93,
+  lapMinutes: 60, beltHours: 6};
+const RINGS = [
+  {key: 'claude', label: 'Claude subagents', color: '#f0906c', test: j => j.source === 'claude'},
+  {key: 'gpt', label: 'GPT (Codex)', color: '#3fd3a4', test: j => j.backend === 'codex'},
+  {key: 'kimi', label: 'Kimi', color: '#6f9dff', test: j => j.backend === 'kimi' && j.provider !== 'nous'},
+  {key: 'nous', label: 'Nous credits', color: '#e88bc4', test: j => j.provider === 'nous'},
+  {key: 'api', label: 'Claude API credits', color: '#c8d36a', test: j => j.backend === 'claude-api', optional: true},
+  {key: 'cmd', label: 'Background commands', color: '#63d6ff', test: j => j.backend === 'shell'},
+];
+const SANS = '"Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif';
+const MONO = '"Cascadia Mono", Consolas, ui-monospace, "SF Mono", Menlo, monospace';
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function safeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function cut(s, n) { s = String(s ?? ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+function span(s) { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h ? `${h}h ${String(m).padStart(2, '0')}m` : m ? `${m}m` : `${s}s`; }
+function running(j) { return j.state === 'running' || j.state === 'starting'; }
+function ringOf(j) { return RINGS.find(r => r.test(j)) || RINGS[RINGS.length - 1]; }
+function outcome(j) { return j.died ? 'cut' : j.state === 'done' ? (j.flags ? 'look' : 'pass') : j.state === 'cancelled' ? 'cancelled' : 'fail'; }
+function rgba(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${n >> 8 & 255},${n & 255},${a})`; }
+function turn(a, b) { return ((b - a + 540) % 360) - 180; }      // the short way round from bearing a to b, signed
+
+// ---------------------------------------------------------------- the scene, rebuilt on every poll
+let data = null, fetchedAt = 0, scene = null, selected = null, hover = null, hits = [];
+let comets = [], ripples = [], flashes = [];
+const before = new Map(), lastComet = new Map();
+
+function nowS() { return data ? data.now + (performance.now() - fetchedAt) / 1000 : Date.now() / 1000; }
+function lapOf(p, now) { return ((now - p.j.started) / p.limit) % 1; }
+
+function build(d) {
+  const jobs = d.jobs || [], slots = d.slots || [];
+  const live = jobs.filter(running), queued = jobs.filter(j => j.state === 'queued');
+  const ended = jobs.filter(j => !running(j) && j.state !== 'queued' && j.finished && d.now - j.finished < G.beltHours * 3600);
+  const cutoff = ended.filter(j => j.died && !j.reviewed);        // not finished: they stay where they stopped
+  const done = ended.filter(j => !cutoff.includes(j));
+  const rings = RINGS.filter(r => !r.optional || jobs.some(r.test));
+  rings.forEach((r, i) => { r.at = G.ringIn + i * (G.ringOut - G.ringIn) / Math.max(4, rings.length - 1); });
+  const n = slots.length;
+  const stations = slots.map((s, i) => ({s, i, name: s.name, bearing: n === 1 ? 180 : 50 + i * 260 / (n - 1),
+    lane: G.lane + Math.min(G.laneStep, .07 / n) * i, shut: (s.closed || []).length > 0}));
+  const planets = live.map(j => {
+    const limit = (j.max_minutes || G.lapMinutes) * 60;
+    const holds = stations.filter(st => st.s.held.some(h => h.holder === j.id));
+    const waits = stations.filter(st => (st.s.waiting || []).some(w => w.holder === j.id));
+    return {j, ring: ringOf(j), limit, holds, waits, nudge: 0,
+            st: j.question ? 'ask' : j.stalled || j.loop ? 'quiet' : 'work',
+            wrap: j.max_minutes && d.checkpoint_minutes && j.backend !== 'shell' ? Math.min(.25, d.checkpoint_minutes * 60 / limit) : 0};
+  });
+  for (const ring of rings) {       // two bodies within 5 degrees on one ring are nudged apart
+    const on = planets.filter(p => p.ring === ring).sort((a, b) => lapOf(a, d.now) - lapOf(b, d.now));
+    on.forEach((p, i) => { if (i && Math.abs(lapOf(p, d.now) - lapOf(on[i - 1], d.now)) * 360 < 5) p.nudge = on[i - 1].nudge > 0 ? -6 : 6; });
+  }
+  const wraps = planets.map(p => p.wrap).filter(Boolean);
+  const closed = [...new Set(slots.flatMap(s => s.closed || []))];
+  return {d, jobs, live, queued, done, cutoff, rings, planets, stations, closed,
+          allShut: stations.length > 0 && stations.every(st => st.shut),
+          wedge: wraps.length ? Math.max(...wraps) : 0,
+          asking: live.filter(j => j.question), quiet: live.filter(j => !j.question && (j.stalled || j.loop)),
+          look: ended.filter(j => (j.flags || j.died || !['done', 'cancelled'].includes(j.state)) && !j.reviewed).length};
+}
+
+function spotNews(d) {          // what each agent did since the last poll becomes a pulse; a new stage also a ripple
+  const t = performance.now();
+  for (const j of (d.jobs || []).filter(running)) {
+    const c = j.counts || {}, sig = [c.commands, c.files, c.messages, j.now_msg_t].join('|'), old = before.get(j.id);
+    before.set(j.id, {sig, phase: j.phase});
+    if (!old || (old.sig === sig && old.phase === j.phase)) continue;
+    if (old.phase !== j.phase) ripples.push({id: j.id, t});
+    if (t - (lastComet.get(j.id) || 0) > 600 && comets.length < 6) { comets.push({id: j.id, t: t + (old.phase !== j.phase ? 350 : 0)}); lastComet.set(j.id, t); }
+  }
+}
+
+// ---------------------------------------------------------------- canvas helpers
+const sky = document.getElementById('sky'), g = sky.getContext('2d');
+let W = 0, H = 0, R = 0, cx = 0, cy = 0, cxWant = 0, phone = false, pr = 9;
+function resize() {
+  const box = sky.parentElement.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  W = box.width; H = box.height; sky.width = Math.round(W * dpr); sky.height = Math.round(H * dpr);
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  phone = W < 700; pr = phone ? 6 : 9;
+  place(true);
+}
+function place(jump) {          // the orrery moves aside while the detail card is open
+  const cardW = !phone && selected ? 414 : 0;
+  R = Math.max(110, Math.min(H / 2 - 4, (W - cardW) / 2 - (phone ? 6 : 12)));
+  cxWant = (W - cardW) / 2; cy = H / 2;
+  if (jump || REDUCED) cx = cxWant;
+}
+addEventListener('resize', resize);
+const rad = b => (b - 90) * Math.PI / 180;
+const pt = (r, b) => [cx + r * Math.cos(rad(b)), cy + r * Math.sin(rad(b))];
+function circle(x, y, r) { g.beginPath(); g.arc(x, y, Math.max(0, r), 0, 2 * Math.PI); }
+function arc(r, b0, b1) { g.beginPath(); g.arc(cx, cy, r, rad(b0), rad(b1), b1 < b0); }
+function font(size, o = {}) { g.font = `${o.weight || 400} ${Math.max(11, size)}px ${o.mono ? MONO : SANS}`; }
+function words(s, x, y, o = {}) {       // text over the orrery, with the background cut around it
+  font(o.size || 12, o); g.textAlign = o.align || 'left'; g.textBaseline = o.base || 'middle';
+  x = Math.round(x); y = Math.round(y);
+  if (o.track) g.letterSpacing = o.track;
+  if (o.halo !== false) { g.lineJoin = 'round'; g.lineWidth = 5; g.strokeStyle = C.bg; g.strokeText(s, x, y); }
+  g.fillStyle = o.color || C.ink; g.fillText(s, x, y);
+  if (o.track) g.letterSpacing = '0px';
+  return g.measureText(s).width;
+}
+function pieces(parts, x, y, align) {   // one line made of differently styled pieces
+  let w = 0;
+  for (const p of parts) { font(p.size || 12, p); p.w = g.measureText(p.t).width; w += p.w; }
+  let at = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
+  for (const p of parts) { words(p.t, at, y, Object.assign({}, p, {align: 'left'})); at += p.w; }
+  return w;
+}
+function wrap(s, width, max) {
+  const out = []; let line = '';
+  for (const word of String(s).split(/\s+/)) {
+    const next = line ? line + ' ' + word : word;
+    if (g.measureText(next).width > width && line) { out.push(line); line = word; } else line = next;
+  }
+  if (line) out.push(line);
+  if (out.length > max) { out.length = max; out[max - 1] = cut(out[max - 1], Math.max(8, out[max - 1].length - 2)) + '…'; }
+  return out;
+}
+function along(points, k) {     // the point a fraction k of the way along a line of points
+  let total = 0; const len = [];
+  for (let i = 1; i < points.length; i++) { len.push(Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1])); total += len[i - 1]; }
+  let want = Math.max(0, Math.min(1, k)) * total;
+  for (let i = 0; i < len.length; i++) { if (want <= len[i] || i === len.length - 1) { const f = len[i] ? Math.min(1, want / len[i]) : 0;
+    return [points[i][0] + (points[i + 1][0] - points[i][0]) * f, points[i][1] + (points[i + 1][1] - points[i][1]) * f, total]; } want -= len[i]; }
+  return [...points[0], total];
+}
+function stroke(points, color, width, dash, offset) {
+  g.beginPath(); points.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y));
+  g.strokeStyle = color; g.lineWidth = width; g.lineJoin = 'round'; g.lineCap = 'round';
+  g.setLineDash(dash || []); g.lineDashOffset = offset || 0; g.stroke(); g.setLineDash([]); g.lineDashOffset = 0; g.lineCap = 'butt';
+}
+// A beam never cuts a chord: straight out from the planet, round the station's lane, straight into the station.
+function beamPath(ring, bearing, st, stopAtCordon) {
+  const out = [pt(ring, bearing)];
+  if (stopAtCordon) { out.push(pt(G.cordon * R, bearing)); return out; }
+  const d = turn(bearing, st.bearing), steps = Math.max(1, Math.ceil(Math.abs(d) / 3));
+  for (let i = 0; i <= steps; i++) out.push(pt(st.lane * R, bearing + d * i / steps));
+  out.push(pt(G.station * R - 13, st.bearing));
+  return out;
+}
+
+// ---------------------------------------------------------------- the drawing
+function draw() {
+  requestAnimationFrame(draw);
+  if (!scene || document.hidden) return;
+  const t = performance.now(), now = nowS(), s = scene, few = s.planets.length <= 10;
+  place(false); cx += (cxWant - cx) * .16;
+  g.clearRect(0, 0, W, H); hits = [];
+  const bgd = g.createRadialGradient(cx, cy, 0, cx, cy, R * 1.02);
+  bgd.addColorStop(0, '#0d1526'); bgd.addColorStop(.7, '#080d18'); bgd.addColorStop(1, 'rgba(8,13,24,0)');
+  g.fillStyle = bgd; circle(cx, cy, R * 1.02); g.fill();
+
+  // --- the belt: finished jobs, by how long ago
+  arc(G.belt * R, 0, 360); g.strokeStyle = C.dim; g.lineWidth = 1; g.setLineDash([1, 7]); g.stroke(); g.setLineDash([]);
+  if (s.planets.length <= 14) for (let b = 0; b < 360; b += 60) stroke([pt(G.belt * R - 4, b), pt(G.belt * R + 4, b)], rgba(C.mid, .5), 1.2);
+  if (!phone) { words('NOW', ...pt(G.belt * R + 13, 0), {size: 11, color: C.muted, align: 'center', track: '.14em'});
+    words(`LANDED · LAST ${G.beltHours} H`, ...pt(G.belt * R + 13, 180), {size: 11, color: C.muted, align: 'center', track: '.14em'}); }
+  for (const j of s.done) {
+    const b = Math.max(0, now - j.finished) / (G.beltHours * 3600) * 360, [x, y] = pt(G.belt * R, b);
+    g.globalAlpha = b > 340 ? Math.max(0, (360 - b) / 20) : s.planets.length > 14 && b > 180 ? .45 : 1;
+    landed(x, y, outcome(j)); g.globalAlpha = 1;
+    if (selected === j.id) brackets(x, y, 12, t);
+    hits.push({x, y, r: 12, id: j.id});
+  }
+
+  // --- the wrap-up wedge and the start line
+  const inner = s.rings[0].at * R - .035 * R, outer = s.rings[s.rings.length - 1].at * R + .035 * R, edge = 360 - s.wedge * 360;
+  if (s.wedge) {
+    g.beginPath(); g.arc(cx, cy, outer, rad(edge), rad(360)); g.arc(cx, cy, inner, rad(360), rad(edge), true); g.closePath();
+    g.fillStyle = 'rgba(255,255,255,.04)'; g.fill();
+    stroke([pt(inner, edge), pt(outer, edge)], rgba(C.mid, .4), 1, [2, 4]);
+    if (!phone) words('WRAP-UP', ...pt(outer - 17, 360 - Math.min(s.wedge * 180, 9)), {size: 11, color: C.muted, align: 'right', track: '.14em'});
+  }
+  stroke([pt(inner, 0), pt(outer, 0)], rgba(C.mid, .55), 1.2);
+
+  // --- rings
+  s.rings.forEach(ring => {
+    const r = ring.at * R, busy = s.planets.some(p => p.ring === ring) || s.cutoff.some(j => ringOf(j) === ring);
+    arc(r, 0, s.wedge ? edge : 360); g.lineWidth = busy ? 1.2 : 1; g.strokeStyle = busy ? rgba(ring.color, .34) : rgba(C.dim, .5); g.stroke();
+    if (s.wedge) { arc(r, edge, 360); g.lineWidth = 4; g.strokeStyle = rgba(busy ? ring.color : C.dim, .6); g.setLineDash([1.5, 5]); g.stroke(); g.setLineDash([]); }
+    ring.busy = busy;
+  });
+
+  // --- owner state: new docking is refused everywhere
+  const calm = REDUCED ? 0 : Math.sin(t / (s.closed.length ? 480 : 955));
+  if (s.allShut) {
+    arc(G.cordon * R, 0, 360); g.strokeStyle = rgba(C.amber, .9); g.lineWidth = 1.8; g.setLineDash([10, 7]); g.stroke(); g.setLineDash([]);
+    if (!phone) words('NEW DOCKING REFUSED', ...pt(G.cordon * R, 180), {size: 11, weight: 700, color: C.amber, align: 'center', track: '.14em'});
+  }
+
+  // --- where every planet is right now
+  const where = new Map();
+  for (const p of s.planets) { const b = lapOf(p, now) * 360, r = p.ring.at * R + p.nudge; where.set(p.j.id, {p, b, r, xy: pt(r, b)}); }
+
+  // --- beams, then stations
+  for (const [, w] of where) {
+    const collar = pr + 4.5;
+    for (const st of w.p.holds) { const path = beamPath(w.r + collar, w.b, st);
+      stroke(path, rgba(C.beam, .1), 6); stroke(path, rgba(C.beam, .88), 2); w.beam = path; }
+    for (const st of w.p.waits) { const path = beamPath(w.r + collar, w.b, st, st.shut);
+      stroke(path, rgba(st.shut ? C.amber : C.beam, .8), 1.7, [5, 5], st.shut || REDUCED ? 0 : -t * .012);
+      if (st.shut) { arc(G.cordon * R, w.b - 2.5, w.b + 2.5); g.strokeStyle = C.amber; g.lineWidth = 4; g.stroke(); } }
+  }
+  for (const st of s.stations) station(st, where);
+
+  // --- queued jobs: parked before the wedge, tethered to what they wait for
+  const parked = new Map();
+  s.queued.forEach(j => {
+    const ring = ringOf(j), k = parked.get(ring) || 0; parked.set(ring, k + 1);
+    const b = Math.min(edge, 326) - 8 - k * 8, r = (ring.at + G.park) * R, [x, y] = pt(r, b);
+    if (s.queued.length + s.planets.length <= 12 || selected === j.id) for (const dep of j.after || []) {
+      const w = where.get(dep); if (!w) continue;
+      const d = turn(b, w.b), steps = Math.max(1, Math.ceil(Math.abs(d) / 3)), path = [];
+      for (let i = 0; i <= steps; i++) path.push(pt(r, b + d * i / steps));
+      path.push(pt(w.r + pr + 2, w.b));
+      stroke(path, rgba(C.mid, .7), 1.1, [1, 4.5]);
+    }
+    circle(x, y, pr * .48); g.fillStyle = C.bg; g.fill(); g.strokeStyle = C.muted; g.lineWidth = 1.3; g.stroke();
+    if (!phone && s.queued.length + s.planets.length <= 12) words(cut(j.name || j.id, 26) + ' · queued', x - 10, y, {size: 11.5, color: C.muted, align: 'right'});
+    if (selected === j.id) brackets(x, y, 11, t);
+    hits.push({x, y, r: 11, id: j.id});
+  });
+
+  // --- trails and stage notches
+  for (const [, w] of where) {
+    const p = w.p, c = p.ring.color, lapped = now - p.j.started > p.limit, from = lapped ? w.b - 355 : 0, dim = p.st === 'quiet' ? .45 : 1;
+    for (let b = from; b < w.b; b += 5) {
+      const b1 = Math.min(w.b, b + 5.4), k = (b - from) / Math.max(1, w.b - from);
+      arc(w.r, b, b1); g.strokeStyle = rgba(p.wrap && lapOf(p, now) > 1 - p.wrap ? C.amber : c, (.3 + .65 * k) * dim); g.lineWidth = phone ? 2.6 : 3.4; g.stroke();
+    }
+    if (p.wrap && Math.abs(p.wrap - s.wedge) * 360 > 2) stroke([pt(w.r - 6, 360 - p.wrap * 360), pt(w.r + 6, 360 - p.wrap * 360)], rgba(C.amber, .85), 1.5);
+    if (few && !phone) for (const stg of p.j.stages || []) {
+      if (stg.kind !== 'phase' || !stg.t) continue;
+      const age = now - stg.t, b = w.b - age / p.limit * 360;
+      if (b < 2 || b > w.b - 3) continue;
+      stroke([pt(w.r - 5, b), pt(w.r + 5, b)], C.bg, 4); stroke([pt(w.r - 5, b), pt(w.r + 5, b)], c, 1.4);
+    }
+  }
+  // agents cut off by a connection error stay where they stopped
+  for (const j of s.cutoff) {
+    const ring = ringOf(j), limit = (j.max_minutes || G.lapMinutes) * 60, b = ((j.finished - j.started) / limit % 1) * 360, r = ring.at * R, [x, y] = pt(r, b);
+    arc(r, 0, b); g.strokeStyle = rgba(ring.color, .3); g.lineWidth = 3; g.setLineDash([6, 5]); g.stroke(); g.setLineDash([]);
+    circle(x, y, pr); g.fillStyle = C.bg; g.fill(); g.strokeStyle = C.red; g.lineWidth = 2; g.setLineDash([pr * .75, pr * .55]); g.stroke(); g.setLineDash([]);
+    stroke([[x - pr * .42, y - pr * .42], [x + pr * .42, y + pr * .42]], C.red, 2); stroke([[x + pr * .42, y - pr * .42], [x - pr * .42, y + pr * .42]], C.red, 2);
+    if (!phone) { words(cut(j.name || j.id, 28), x + pr + 9, y - 7, {size: 13.5, weight: 600});
+      words('cut off · resume it once', x + pr + 9, y + 9, {size: 12, color: C.red}); }
+    if (selected === j.id) brackets(x, y, pr + 11, t);
+    hits.push({x, y, r: 16, id: j.id});
+  }
+
+  // --- ripples (a new stage) under the planets
+  ripples = ripples.filter(q => t - q.t < 900 && where.has(q.id));
+  if (!REDUCED) for (const q of ripples) { const [x, y] = where.get(q.id).xy, k = (t - q.t) / 900, e = 1 - Math.pow(1 - k, 3);
+    circle(x, y, pr + 26 * e); g.strokeStyle = rgba('#ffffff', .6 * (1 - k)); g.lineWidth = 1.5; g.stroke(); }
+
+  // --- planets
+  const asks = [];
+  for (const [, w] of where) {
+    const p = w.p, [x, y] = w.xy, c = p.ring.color;
+    if (p.st === 'ask') { asks.push(w); continue; }
+    if (p.st === 'quiet') {
+      if (!REDUCED && s.planets.length <= 12) { const k = (t % 5000) / 2400; if (k < 1) { circle(x, y, pr + 16 * k); g.strokeStyle = rgba(c, .5 * (1 - k)); g.lineWidth = 1; g.stroke(); } }
+      circle(x, y, pr + 7); g.strokeStyle = rgba(c, .28); g.lineWidth = 1; g.stroke();
+      circle(x, y, pr - 1); g.fillStyle = C.bg; g.fill(); g.strokeStyle = rgba(c, .62); g.lineWidth = 2; g.stroke();
+    } else {
+      if (s.planets.length <= 12) { const glow = g.createRadialGradient(x, y, 0, x, y, pr * 3);
+        glow.addColorStop(0, rgba(c, .32)); glow.addColorStop(1, rgba(c, 0)); g.fillStyle = glow; circle(x, y, pr * 3); g.fill(); }
+      circle(x, y, pr + 2); g.fillStyle = C.bg; g.fill();
+      circle(x, y, pr); g.fillStyle = c; g.fill();
+    }
+    if (p.holds.length) { circle(x, y, pr + 4.5); g.strokeStyle = c; g.lineWidth = 1.6; g.stroke(); }
+    else if (p.waits.length) { circle(x, y, pr + 4.5); g.strokeStyle = c; g.lineWidth = 1.6; g.setLineDash([3, 3.2]); g.stroke(); g.setLineDash([]); }
+    if (selected === p.j.id) brackets(x, y, pr + 11, t);
+    hits.push({x, y, r: 18, id: p.j.id});
+  }
+  if (!phone) labels(where, now, s);
+
+  // --- asking: a flare nobody can miss, and a line out to the question
+  const boxes = [];
+  asks.forEach((w, i) => {
+    const [x, y] = w.xy, beat = REDUCED ? 0 : (t % 1600) / 1600;
+    if (!phone && i < 2) { const box = calloutBox(w, pt(.96 * R, w.b), boxes); w.box = box; boxes.push(box);
+      w.line = [w.xy, [box.x + box.w / 2, box.y + box.h / 2]]; }
+    else w.line = [w.xy, phone ? [x, H] : pt(G.belt * R, w.b)];
+    stroke(w.line, rgba(C.ask, .18), 5); stroke(w.line, C.ask, 1.8);
+  });
+  asks.forEach(w => { if (w.box) callout(w, w.box, now); });
+  asks.forEach(w => {
+    const [x, y] = w.xy, beat = REDUCED ? 0 : (t % 1600) / 1600, breathe = REDUCED ? 1 : 1 + .12 * Math.sin(beat * 2 * Math.PI);
+    const glow = g.createRadialGradient(x, y, 0, x, y, pr * 3.4); glow.addColorStop(0, rgba(C.ask, .34)); glow.addColorStop(1, rgba(C.ask, 0));
+    g.fillStyle = glow; circle(x, y, pr * 3.4); g.fill();
+    [[10, 1.6, .75], [20, 1.3, .4], [30, 1, .18]].forEach(([d, lw, a]) => { circle(x, y, pr + d); g.strokeStyle = rgba(C.ask, a); g.lineWidth = lw; g.stroke(); });
+    if (!REDUCED) for (const k of [0, 1 / 3, 2 / 3]) { const q = (beat + k) % 1, e = 1 - Math.pow(1 - q, 3);
+      circle(x, y, pr + 6 + 28 * e); g.strokeStyle = rgba(C.ask, .7 * (1 - q)); g.lineWidth = 1.4; g.stroke(); }
+    for (let i = 0; i < 8; i++) {       // four long rays and four short ones; they never turn
+      const a = i * Math.PI / 4, long = i % 2 === 0, len = (long ? 3.6 : 1.5) * pr * breathe, from = pr + 1, ux = Math.cos(a), uy = Math.sin(a);
+      g.beginPath(); g.moveTo(x + ux * from - uy * 2.3, y + uy * from + ux * 2.3); g.lineTo(x + ux * (from + len), y + uy * (from + len));
+      g.lineTo(x + ux * from + uy * 2.3, y + uy * from - ux * 2.3); g.closePath(); g.fillStyle = long ? '#e9deff' : rgba(C.ask, .7); g.fill();
+    }
+    circle(x, y, pr + 2); g.fillStyle = '#f4eeff'; g.fill(); g.strokeStyle = C.ask; g.lineWidth = 3; g.stroke();
+    if (selected === w.p.j.id) brackets(x, y, pr + 19, t);
+    hits.push({x, y, r: 22, id: w.p.j.id});
+  });
+
+  // --- pulses: a comet falls from the planet into the centre, or runs along its beam to the station
+  const sunR = G.sun * R * (s.closed.length ? 1.24 : phone ? 1.15 : 1);
+  comets = comets.filter(q => where.has(q.id) && t - q.t < 1300);
+  for (const q of comets) {
+    if (t < q.t) continue;
+    const w = where.get(q.id), path = w.beam || [w.xy, pt(sunR, w.b)], total = along(path, 1)[2];
+    const ms = w.beam ? Math.max(500, Math.min(1200, total / .26)) : 700, k = (t - q.t) / ms;
+    if (k >= 1) { if (!q.landed) { q.landed = true; if (!w.beam) flashes.push({b: w.b, t}); else w.p.holds[0].flash = t; } continue; }
+    if (REDUCED) continue;
+    const e = w.beam ? k : k * k, [hx, hy] = along(path, e), [tx, ty] = along(path, Math.max(0, e - 16 / Math.max(16, total)));
+    stroke([[tx, ty], [hx, hy]], rgba(w.p.ring.color, .85), 2.6); circle(hx, hy, 2); g.fillStyle = '#ffffff'; g.fill();
+  }
+
+  // --- the centre: this PC
+  const warm = s.closed.length > 0, rim = warm ? C.amber : C.sun;
+  circle(cx, cy, sunR + 1); g.strokeStyle = rgba(rim, (warm ? .42 : .24) * (1 + .2 * calm)); g.lineWidth = warm ? 26 : 16; g.filter = 'blur(12px)'; g.stroke(); g.filter = 'none';
+  const fill = g.createRadialGradient(cx, cy, 0, cx, cy, sunR); fill.addColorStop(0, warm ? '#4a2f0a' : '#14203a'); fill.addColorStop(1, warm ? '#1d1305' : '#0a1120');
+  circle(cx, cy, sunR); g.fillStyle = fill; g.fill(); g.strokeStyle = rim; g.lineWidth = warm ? 3.6 : 2.2; g.stroke();
+  flashes = flashes.filter(f => t - f.t < 400);
+  for (const f of flashes) { arc(sunR, f.b - 9, f.b + 9); g.strokeStyle = rgba('#ffffff', .22 * (1 - (t - f.t) / 400) * 4); g.lineWidth = 4; g.stroke(); }
+  const clock = new Date(now * 1000), hhmm = clock.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', hour12: false});
+  const [bx, by] = pt(sunR, (clock.getSeconds() + clock.getMilliseconds() / 1000) * 6);     // the seconds hand: a bead on the rim
+  circle(bx, by, 3.2); g.fillStyle = '#ffffff'; g.fill(); g.strokeStyle = C.bg; g.lineWidth = 1.5; g.stroke();
+  const flying = s.live.length ? `${s.live.length} in flight` : 'all quiet';
+  if (warm && !phone) {
+    words('OWNER IS USING', cx, cy - 22, {size: 11, weight: 700, color: C.amber, align: 'center', track: '.07em', halo: false});
+    words(cut(s.closed[0].replace(/ \(.*$/, ''), 14), cx, cy - 2, {size: 16, weight: 600, mono: true, align: 'center', halo: false});
+    words(`${hhmm} · ${flying}`, cx, cy + 20, {size: 11.5, color: C.mid, align: 'center', halo: false});
+  } else {
+    words(hhmm, cx, cy - (phone ? 0 : 8), {size: phone ? 15 : 25, weight: 600, mono: true, align: 'center', halo: false});
+    if (!phone) words(flying, cx, cy + 16, {size: 12, color: C.mid, align: 'center', halo: false});
+  }
+  if (!s.live.length && s.done.length && !phone) {
+    const newest = Math.max(...s.done.map(j => j.finished));
+    words(`last landing ${span(now - newest)} ago`, cx, cy + sunR + 18, {size: 12, color: C.muted, align: 'center'});
+  }
+
+  if (!phone) gauges();
+}
+
+function brackets(x, y, r, t) {     // the selected body: four bracket arcs, turning slowly
+  const spin = REDUCED ? 0 : (t / 12000) * 2 * Math.PI;
+  g.strokeStyle = '#ffffff'; g.lineWidth = 1.8; g.lineCap = 'round';
+  for (let i = 0; i < 4; i++) { const a = spin + i * Math.PI / 2 + .35; g.beginPath(); g.arc(x, y, r, a, a + .87); g.stroke(); }
+  g.lineCap = 'butt';
+}
+
+function landed(x, y, kind) {       // a different shape for each way a job ended
+  if (kind === 'pass') { circle(x, y, 3.4); g.fillStyle = rgba(C.pass, .62); g.fill(); }
+  else if (kind === 'look') { g.beginPath(); g.moveTo(x, y - 6); g.lineTo(x + 6, y); g.lineTo(x, y + 6); g.lineTo(x - 6, y); g.closePath(); g.fillStyle = rgba(C.amber, .9); g.fill(); }
+  else if (kind === 'cancelled') stroke([[x - 4, y], [x + 4, y]], C.muted, 2);
+  else { stroke([[x - 4.2, y - 4.2], [x + 4.2, y + 4.2]], rgba(C.red, .92), 2); stroke([[x + 4.2, y - 4.2], [x - 4.2, y + 4.2]], rgba(C.red, .92), 2); }
+}
+
+function station(st, where) {
+  const s = st.s, [x, y] = pt(G.station * R, st.bearing), size = phone ? 6 : 8, gap = phone ? 4 : 5;
+  const w = s.slots * size + (s.slots - 1) * gap + 14, h = size + 12, line = st.shut ? C.amber : C.station;
+  g.beginPath(); g.roundRect(x - w / 2, y - h / 2, w, h, 5); g.fillStyle = C.stationFill; g.fill();
+  g.strokeStyle = line; g.lineWidth = 1.5; if (st.shut) g.setLineDash([4, 3]); g.stroke(); g.setLineDash([]);
+  const lit = st.flash && performance.now() - st.flash < 300;
+  for (let i = 0; i < s.slots; i++) {
+    const px = x - w / 2 + 7 + i * (size + gap), holder = s.held[i] && where.get(s.held[i].holder);
+    g.beginPath(); g.roundRect(px, y - size / 2, size, size, 2);
+    if (s.held[i]) { g.fillStyle = lit ? '#ffffff' : holder ? holder.p.ring.color : C.mid; g.fill(); }
+    else { g.strokeStyle = C.dim; g.lineWidth = 1.2; g.stroke(); }
+  }
+  if (s.baseline && phone) vault(x + w / 2 + 11, y);
+  const top = st.bearing < 90 || st.bearing > 270, dir = top ? -1 : 1;
+  let ly = y + dir * (h / 2 + 12);
+  const away = s.held.filter(hd => !where.has(hd.holder)).map(hd => cut(hd.holder, 14));
+  const status = [{t: !s.held.length ? 'free' : s.slots === 1 ? 'held' : `${s.held.length} of ${s.slots} held`, color: C.muted, size: 11.5}];
+  if (away.length && !phone) status.push({t: ' · ' + away.join(', '), color: C.muted, size: 11.5});
+  if ((s.waiting || []).length) status.push({t: ` · ${s.waiting.length} waiting`, color: C.amber, size: 11.5});
+  if (st.shut) status.push({t: ' · closed', color: C.amber, size: 11.5});
+  if (phone) { pieces([{t: s.name, mono: true, size: 12}, ...status.slice(1).filter(p => p.t.includes('waiting'))], x, ly, 'center'); return; }
+  const rows = [[{t: s.name, mono: true, size: 12.5}], status];
+  if (top) rows.reverse();
+  for (const row of rows) { pieces(row, x, ly, 'center'); ly += dir * 17; }
+  if (s.baseline) { const tw = pieces([{t: 'state saved', color: C.pass, size: 11.5}], x + 8, ly, 'center'); vault(x - tw / 2 - 4, ly); }
+}
+function vault(x, y) {              // the shared state is saved, and goes back when the last holder leaves
+  g.strokeStyle = C.pass; g.lineWidth = 1.3; g.beginPath(); g.roundRect(x - 5.5, y - 5.5, 11, 11, 2.5); g.stroke();
+  circle(x, y + .5, 2.2); g.stroke(); stroke([[x, y - 1.7], [x, y - 3.6]], C.pass, 1.3);
+}
+
+function labels(where, now, s) {
+  const lines = s.planets.length <= 10 ? 2 : s.planets.length <= 14 ? 1 : 0, placed = [];
+  const taken = r => placed.some(q => r.x < q.x + q.w && r.x + r.w > q.x && r.y < q.y + q.h && r.y + r.h > q.y);
+  for (const [, w] of where) {
+    const p = w.p, j = p.j, [x, y] = w.xy;
+    if (p.st === 'ask') continue;
+    if (!lines && selected !== j.id && hover !== j.id) continue;      // crowded: names only for the one pointed at
+    const name = cut(j.name || j.id, 30), amber = p.st === 'quiet' || p.waits.length;
+    const stage = p.st === 'quiet' ? `quiet ${span(j.idle || 0)}` : p.waits.length ? `waiting for ${p.waits.map(st => st.name).join(', ')}` : cut(j.phase || j.now_msg || 'working', 30);
+    font(13.5, {weight: 600}); const wn = g.measureText(name).width;
+    font(12); const ws = lines > 1 ? g.measureText(stage + ' · ' + span(now - j.started)).width + 6 : 0;
+    const bw = Math.max(wn, ws) + 4, bh = lines > 1 ? 36 : 18, gap = pr + (p.holds.length || p.waits.length ? 12 : 9) + (selected === j.id ? 5 : 0);
+    const outerRing = p.ring === s.rings[s.rings.length - 1], right = w.b < 180 !== outerRing && true;
+    // a beam leaves straight outwards, so the label keeps off that line
+    const lift = (p.holds.length || p.waits.length) && Math.abs(Math.cos(rad(w.b))) > .8 ? -15 : 0;
+    const spots = [[right, lift], [!right, lift], [right, 26], [right, -26], [!right, 26], [!right, -26]];
+    let spot = spots.find(([side, dy]) => !taken({x: side ? x + gap : x - gap - bw, y: y + dy - bh / 2, w: bw, h: bh})) || spots[0];
+    const [side, dy] = spot, lx = side ? x + gap : x - gap, align = side ? 'left' : 'right';
+    placed.push({x: side ? lx : lx - bw, y: y + dy - bh / 2, w: bw, h: bh});
+    words(name, lx, y + dy - (lines > 1 ? 8 : 0), {size: 13.5, weight: 600, align});
+    if (lines > 1) pieces([{t: stage, color: amber ? C.amber : C.mid}, {t: ' · ', color: C.mid}, {t: span(now - j.started), color: C.mid, mono: true}], lx, y + dy + 9, align);
+  }
+  // ring names, read from the inside out at 6 o'clock; one fades while a planet label sits on it
+  for (const ring of s.rings) {
+    const [x, y] = pt(ring.at * R - 12, 180); font(11.5); const w = g.measureText(ring.label).width;
+    g.globalAlpha = taken({x: x - w / 2, y: y - 8, w, h: 16}) ? .25 : 1;
+    words(ring.label, x, y, {size: 11.5, color: ring.busy ? ring.color : C.muted, align: 'center', track: '.03em'});
+    g.globalAlpha = 1;
+  }
+}
+
+function calloutBox(w, anchor, others) {        // the question goes outside the rings, where it cannot be missed
+  const j = w.p.j, bw = 290, pad = 14;
+  font(14); const text = wrap(j.question, bw - 2 * pad, 3), bh = 58 + text.length * 20;
+  let x = anchor[0] - bw / 2, y = anchor[1] - bh / 2;
+  const cardLeft = selected ? W - 414 - 8 : W - 14;
+  x = Math.max(14, Math.min(cardLeft - bw, x)); y = Math.max(14, Math.min(H - bh - 14, y));
+  for (const o of others) if (x < o.x + o.w && x + bw > o.x && y < o.y + o.h && y + bh > o.y) y = o.y + o.h + 10 > H - bh - 14 ? o.y - bh - 10 : o.y + o.h + 10;
+  return {x, y, w: bw, h: bh, text};
+}
+function callout(w, box, now) {
+  const j = w.p.j, {x, y, w: bw, h: bh, text} = box, pad = 14;
+  g.beginPath(); g.roundRect(x - 3, y - 3, bw + 6, bh + 6, 12); g.fillStyle = rgba(C.ask, .16); g.fill();
+  g.beginPath(); g.roundRect(x, y, bw, bh, 9); g.fillStyle = C.askPanel; g.fill(); g.strokeStyle = C.ask; g.lineWidth = 1.5; g.stroke();
+  words(`ASKING · WAITING ${span(now - (j.question_since || now))}`, x + pad, y + 18, {size: 11, weight: 700, color: C.ask, track: '.14em', halo: false});
+  words(cut(j.name || j.id, 34), x + pad, y + 38, {size: 14, weight: 600, halo: false});
+  text.forEach((line, i) => words(line, x + pad, y + 62 + i * 20, {size: 14, halo: false}));
+  hits.push({x: x + bw / 2, y: y + bh / 2, r: 0, box: [x, y, bw, bh], id: j.id});
+}
+
+function fuel() { return [['Claude API', scene.d.api_spend], ['Nous', scene.d.nous_spend]].filter(([, s]) => s && (s.month || s.budget)); }
+function fuelColor(part) { return part > .95 ? C.red : part > .8 ? C.amber : C.mid; }
+function gauges() {             // money spent this month against its budget
+  const rows = fuel();
+  rows.forEach(([name, s], i) => {
+    const x = 22, w = 236, y = H - 22 - (rows.length - 1 - i) * 36, part = s.budget ? Math.min(1, s.month / s.budget) : 0;
+    words(name, x, y - 14, {size: 12.5});
+    words(`$${s.month.toFixed(2)}${s.budget ? ' of $' + s.budget + (i === 0 ? ' this month' : '') : ''}`, x + w, y - 14, {size: 12, mono: true, color: C.mid, align: 'right'});
+    g.fillStyle = 'rgba(120,190,255,.14)'; g.beginPath(); g.roundRect(x, y - 2, w, 4, 2); g.fill();
+    if (part) { g.fillStyle = fuelColor(part); g.beginPath(); g.roundRect(x, y - 2, Math.max(4, w * part), 4, 2); g.fill(); }
+  });
+}
+
+// ---------------------------------------------------------------- the bar, the card and the phone list (plain HTML)
+const GLYPH = {
+  work: c => `<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" fill="${c}"/></svg>`,
+  ask: () => `<svg viewBox="0 0 16 16"><path d="M8 0l1.6 6.4L16 8l-6.4 1.6L8 16l-1.6-6.4L0 8l6.4-1.6z" fill="#b592ff"/><circle cx="8" cy="8" r="2.4" fill="#f4eeff"/></svg>`,
+  quiet: c => `<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="4.6" fill="none" stroke="${c}" stroke-width="2"/></svg>`,
+  queued: () => `<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="3" fill="none" stroke="#7f8da6" stroke-width="1.4"/></svg>`,
+  pass: () => `<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="3" fill="#6fbfa4"/></svg>`,
+  look: () => `<svg viewBox="0 0 16 16"><path d="M8 2l6 6-6 6-6-6z" fill="#f2b84b"/></svg>`,
+  cut: () => `<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="#ff6b6b" stroke-width="1.6" stroke-dasharray="5 3.5"/><path d="M5.6 5.6l4.8 4.8M10.4 5.6l-4.8 4.8" stroke="#ff6b6b" stroke-width="1.6"/></svg>`,
+  fail: () => `<svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="#ff6b6b" stroke-width="2"/></svg>`,
+};
+function stat(n, word, glyph, color) {
+  return `<div class="stat ${n ? '' : 'zero'}">${glyph}<b style="${n && color ? 'color:' + color : ''}">${n}</b><span>${word}</span></div>`;
+}
+function chrome() {
+  const s = scene;
+  document.getElementById('stats').innerHTML = stat(s.live.length, 'in flight', GLYPH.work('#aab6cc')) + stat(s.asking.length, 'asking', GLYPH.ask(), C.ask) +
+    stat(s.quiet.length, 'quiet', GLYPH.quiet(C.amber), C.amber) + stat(s.queued.length, 'queued', GLYPH.queued()) +
+    stat(s.done.length + s.cutoff.length, 'landed', GLYPH.pass()) +
+    `<a href="/evidence" style="text-decoration:none;color:inherit">${stat(s.look, 'need a look', GLYPH.look(), C.amber)}</a>`;
+  const chip = document.getElementById('chip');
+  chip.className = s.closed.length ? 'on' : '';
+  chip.innerHTML = s.closed.length ? `OWNER IS USING<b>${esc(cut(s.closed.join(', '), 40))}</b>` : '';
+  const base = 'Orbit · Agent Relay Feed';
+  document.title = s.asking.length ? `(${s.asking.length}) needs an answer · ${base}` : base;
+  if (typing()) return;
+  card();
+  document.getElementById('asks').innerHTML = s.asking.map(j => `<div class="qbox"><div class="h">ASKING · WAITING ${span(s.d.now - j.question_since)}</div>` +
+    `<div class="name">${esc(j.name)}</div><div class="q">${esc(j.question)}</div>${answerBox(j, true)}</div>`).join('');
+  document.getElementById('fuel').innerHTML = fuel().map(([name, f]) => { const part = f.budget ? Math.min(1, f.month / f.budget) : 0;
+    return `<div><div class="row"><span>${name}</span><span class="mono" style="color:var(--mid)">$${f.month.toFixed(2)}${f.budget ? ' of $' + f.budget : ''}</span></div>` +
+      `<div class="bar"><i style="width:${Math.round(part * 100)}%;background:${fuelColor(part)}"></i></div></div>`; }).join('');
+  document.getElementById('list').innerHTML = s.planets.length ? '<h4>IN FLIGHT</h4>' + s.planets.map(p => { const j = p.j, c = p.ring.color;
+    const bits = [j.phase || 'working', p.ring.label, ...p.holds.map(st => 'holds ' + st.name), ...p.waits.map(st => 'waits for ' + st.name)];
+    return `<button data-pick="${esc(j.id)}" class="${selected === j.id ? 'on' : ''}">${p.st === 'ask' ? GLYPH.ask() : p.st === 'quiet' ? GLYPH.quiet(c) : GLYPH.work(c)}` +
+      `<span><b>${esc(j.name || j.id)}</b><small>${esc(bits.join(' · '))}</small></span><span class="mono">${span(s.d.now - j.started)}</span></button>`; }).join('') : '';
+}
+function answerBox(j, small) {
+  if (!scene.d.can_answer) return `<div class="how mono">delegate.py answer ${esc(j.id)} "…"</div>`;
+  return `<form data-send="answer" data-job="${esc(j.id)}">${small ? '<input placeholder="Type your answer" autocomplete="off">' :
+    '<textarea placeholder="Type your answer"></textarea>'}<button>${small ? 'Send' : 'Send answer'}</button></form>`;
+}
+function card() {
+  const el = document.getElementById('card'), d = scene.d, j = selected && scene.jobs.find(x => x.id === selected);
+  if (!j) { el.className = ''; return; }
+  const live = running(j), p = scene.planets.find(q => q.j.id === j.id), ring = ringOf(j), now = d.now;
+  const holds = p ? p.holds : [], waits = p ? p.waits : [];
+  let glyph = GLYPH.work(ring.color), word = 'Working', color = ring.color;
+  if (j.state === 'queued') [glyph, word, color] = [GLYPH.queued(), 'Queued', C.muted];
+  else if (!live) { const o = outcome(j); [glyph, word, color] = {pass: [GLYPH.pass(), 'Landed · passed', C.pass], look: [GLYPH.look(), 'Landed · needs a look', C.amber],
+    cut: [GLYPH.cut(), 'Cut off · not finished', C.red], cancelled: [GLYPH.queued(), 'Cancelled', C.muted], fail: [GLYPH.fail(), 'Failed', C.red]}[o]; }
+  else if (j.question) [glyph, word, color] = [GLYPH.ask(), `Asking · waiting for you ${span(now - j.question_since)}`, C.ask];
+  else if (j.stalled || j.loop) [glyph, word, color] = [GLYPH.quiet(C.amber), `Quiet ${span(j.idle || 0)}`, C.amber];
+  if (live && !j.question) word += holds.length ? ' · holding a slot' : waits.length ? ' · waiting for a slot' : '';
+  const limit = j.max_minutes ? j.max_minutes * 60 : 0, used = (j.finished || now) - j.started, wrapS = p && p.wrap ? p.wrap * limit : 0;
+  const row = (k, v) => v ? `<dt>${k}</dt><dd>${v}</dd>` : '';
+  const lapBar = limit ? `<div class="lap"><i style="width:${Math.min(100, used / limit * 100).toFixed(1)}%;background:${ring.color}"></i>` +
+    (wrapS ? `<u style="width:${(wrapS / limit * 100).toFixed(1)}%"></u>` : '') + '</div>' : '';
+  const last = j.now_msg || (j.current && [j.current.verb, j.current.detail].filter(Boolean).join(': '));
+  el.className = 'on' + (j.question && live ? ' asking' : '');
+  el.innerHTML = `<button class="x" aria-label="Close">×</button><div class="state" style="color:${color}">${glyph}<span>${esc(word)}</span></div>` +
+    `<h3>${esc(j.name || j.id)}</h3><span class="chip" style="border-color:${ring.color};color:${ring.color}">${esc(ring.label)}</span>` +
+    (j.label ? `<span class="chip">${esc(j.label)}</span>` : '') + '<hr><dl>' +
+    row(live ? 'Time used' : 'Took', `<b class="mono">${span(used)}</b>${limit ? ` of ${span(limit)} limit` : ''}` +
+      (wrapS && live ? `<small>wrap-up starts at ${span(limit - wrapS)}</small>` : '')) + lapBar +
+    row('Stage', j.phase ? esc(j.phase) + `<small>${j.phases ? 'stage ' + j.phases + ' · ' : ''}${j.phase_since && live ? 'for ' + span(now - j.phase_since) : ''}</small>` : '') +
+    row('Last activity', last ? `<span class="mono">${esc(cut(last, 120))}</span>${live && j.idle != null ? `<small>${span(j.idle)} ago</small>` : ''}` : '') +
+    (live ? row('Slots held', holds.length ? holds.map(st => `<span class="mono">${esc(st.name)}</span> · ${st.s.held.length} of ${st.s.slots}${st.s.baseline ? ' · state saved' : ''}`).join('<br>') : 'none') +
+            row('Waiting for', waits.length ? waits.map(st => esc(st.name) + (st.shut ? ' (closed: owner)' : '')).join(', ') : 'nothing') : '') +
+    (!live && j.state !== 'queued' ? row('Verdict', esc((j.verdict || (j.died ? 'cut off by a connection error' : j.state)) + (j.flags ? `, ${j.flags} flagged` : ''))) : '') +
+    (j.state === 'queued' ? row('Waits for', esc((j.after || []).map(id => (scene.jobs.find(x => x.id === id) || {}).name || id).join(', '))) : '') +
+    row('Job', `<span class="mono" style="color:var(--muted)">${esc(j.id)}</span>`) + '</dl>' +
+    (j.question && live ? `<div class="qbox"><div class="h">QUESTION</div><div class="q">${esc(j.question)}</div>${answerBox(j)}</div>` :
+     live && d.can_answer && j.source !== 'claude' && j.backend !== 'shell'
+       ? `<form data-send="tell" data-job="${esc(j.id)}" style="margin-top:14px"><input placeholder="Message this agent…" autocomplete="off"><button>Send</button></form>` : '') +
+    (j.died ? `<div class="how">Resume it once from the session that started it.${j.resume ? ' ' + esc(cut(j.resume, 160)) : ''}</div>` : '') +
+    (!live && (j.flags || j.died) ? '<div class="how"><a href="/evidence">Open it on the Review page</a></div>' : '');
+}
+function pick(id) { selected = id; place(false); card(); if (phone) chrome(); }
+function hitAt(ev) {
+  const b = sky.getBoundingClientRect(), x = ev.clientX - b.left, y = ev.clientY - b.top;
+  const box = hits.find(h => h.box && x >= h.box[0] && x <= h.box[0] + h.box[2] && y >= h.box[1] && y <= h.box[1] + h.box[3]);
+  if (box) return box;
+  return hits.filter(h => !h.box).map(h => ({h, d: Math.hypot(h.x - x, h.y - y)})).filter(o => o.d <= o.h.r).sort((a, b) => a.d - b.d).map(o => o.h)[0];
+}
+sky.addEventListener('click', ev => { const h = hitAt(ev); pick(h ? h.id : null); });
+sky.addEventListener('mousemove', ev => { const h = hitAt(ev), j = h && scene && scene.jobs.find(x => x.id === h.id);
+  sky.style.cursor = h ? 'pointer' : 'default'; hover = h ? h.id : null;
+  sky.title = j && !running(j) && j.state !== 'queued' ? `${j.name || j.id}: ${j.verdict || j.state}${j.flags ? ', ' + j.flags + ' flagged' : ''}` : ''; });
+document.getElementById('card').addEventListener('click', ev => { if (ev.target.closest('.x')) pick(null); });
+document.getElementById('list').addEventListener('click', ev => { const b = ev.target.closest('[data-pick]'); if (b) { pick(b.dataset.pick); scrollTo({top: 0, behavior: REDUCED ? 'auto' : 'smooth'}); } });
+
+// ---- answering from the page (needs feed_pin in the config) -------------------------------
+async function sendTo(kind, job, body) {
+  if (DEMO !== null) { alert('This is invented demo data: there is no agent to answer.'); return false; }
+  let pin = safeGet('feed.pin') || prompt('PIN for answering from this page');
+  if (!pin) return false;
+  let r, d = {};
+  try {
+    r = await fetch('/api/' + kind, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({pin, job, text: body})});
+    d = await r.json();
+  } catch (e) { alert('Could not reach the feed server.'); return false; }
+  if (r.status === 401) { safeSet('feed.pin', ''); alert(d.error || 'Wrong PIN.'); return false; }
+  if (!r.ok) { alert(d.error || 'That did not work.'); return false; }
+  safeSet('feed.pin', pin);
+  return true;
+}
+document.addEventListener('submit', async ev => {
+  const f = ev.target.closest('form[data-send]'); if (!f) return;
+  ev.preventDefault();
+  const box = f.querySelector('input, textarea'), body = box.value.trim();
+  if (!body) return;
+  f.querySelector('button').disabled = true;
+  if (await sendTo(f.dataset.send, f.dataset.job, body)) { box.value = ''; box.blur(); }
+  f.querySelector('button').disabled = false;
+});
+function typing() { const a = document.activeElement; return !!(a && a.closest && a.closest('form[data-send]')) ||
+  [...document.querySelectorAll('form[data-send] input, form[data-send] textarea')].some(i => i.value); }
+
+// ---------------------------------------------------------------- invented data: /orbit?demo, ?demo=playing, ?demo=quiet, ?demo=crowd
+const demoStart = Date.now() / 1000;
+function demo() {
+  const now = Date.now() / 1000, m = 60, ago = s => now - s, tick = Math.floor((now - demoStart) / 3);
+  const ph = (t, text) => ({t, kind: 'phase', text});
+  const job = o => Object.assign({state: 'running', source: 'relay', backend: 'codex', idle: 12, stalled: false, loop: false, flags: 0, after: [],
+    counts: {commands: 40 + (o.busy ? Math.floor(tick / o.busy) : 0), files: 3, messages: 5}, phases: (o.stages || []).length, elapsed: (o.finished || now) - o.started}, o);
+  const landed = (id, name, label, backend, mins, state, extra = {}) => job(Object.assign({id, name, label, backend, state,
+    started: ago((mins + 35) * m), finished: ago(mins * m), verdict: state === 'done' ? 'pass' : null}, extra));
+  const empty = name => ({name, slots: name === 'test-copy' ? 4 : 1, held: [], waiting: [], closed: []});
+  const base = {now, stall: 480, checkpoint_minutes: 8, processes: [], api_spend: {month: 6.4, budget: 50}, nous_spend: {month: .42, budget: 10}};
+  if (DEMO === 'quiet') return Object.assign(base, {can_answer: false, slots: ['build', 'test-copy', 'bootloop', 'desktop', 'emulator'].map(empty),
+    jobs: [landed('q-1', 'Update dependencies', 'GPT-6.1-Terra (high)', 'codex', 21, 'done'), landed('q-2', 'Nightly soak test', 'Background command', 'shell', 95, 'done'),
+           landed('q-3', 'Review auth changes', 'Kimi K3.1 Pro', 'kimi', 170, 'done', {flags: 1}), landed('q-4', 'Port settings screen', 'GPT-6.1-Sol (high)', 'codex', 250, 'done')]});
+  const shut = DEMO === 'playing' ? ['TheApp.exe'] : [];
+  const jobs = [
+    job({id: 'd-1', name: 'Refactor billing module', label: 'GPT-6.1-Sol (high)', started: ago(42 * m), max_minutes: 130, busy: 2, phase: 'running tests',
+      phase_since: ago(7.6 * m), stages: [ph(ago(41 * m), 'read the module'), ph(ago(30 * m), 'split the invoice code'), ph(ago(19 * m), 'update callers'), ph(ago(7.6 * m), 'running tests')],
+      current: {verb: 'Run tests', detail: 'billing suite'}}),
+    job({id: 'd-2', name: 'Port settings screen', label: 'general-purpose', source: 'claude', backend: 'claude', started: ago(7 * m), busy: 3, phase: 'editing layout',
+      phase_since: ago(3 * m), stages: [ph(ago(6.5 * m), 'read the old screen'), ph(ago(3 * m), 'editing layout')]}),
+    job({id: 'd-3', name: 'Review auth changes', label: 'general-purpose', source: 'claude', backend: 'claude', started: ago(38 * m), idle: 240, phase: 'tracing refresh callers',
+      phase_since: ago(11 * m), stages: [ph(ago(37 * m), 'read the diff'), ph(ago(24 * m), 'check token storage'), ph(ago(11 * m), 'tracing refresh callers')],
+      question: 'The token refresh path skips the audit log. Fix it in this change, or report only?', question_since: ago(4 * m),
+      current: {verb: 'ask', detail: 'waiting for the supervisor'}}),
+    job({id: 'd-4', name: 'Migrate database schema', label: 'Kimi K3.1 Pro', backend: 'kimi', started: ago(20 * m), max_minutes: 90, busy: 5, phase: 'dry run on a copy',
+      phase_since: ago(9 * m), stages: [ph(ago(19 * m), 'read the migrations'), ph(ago(9 * m), 'dry run on a copy')]}),
+    job({id: 'd-5', name: 'Update dependencies', label: 'GPT-6.1-Terra (medium)', started: ago(58 * m), max_minutes: 80, stalled: true, idle: 14 * m, phase: 'install and build',
+      phase_since: ago(31 * m), stages: [ph(ago(57 * m), 'list outdated packages'), ph(ago(31 * m), 'install and build')]}),
+    job({id: 'd-6', name: 'Nightly soak test', label: 'Background command', backend: 'shell', started: ago(96 * m), max_minutes: 240, busy: 1, phase: 'running the command',
+      phase_since: ago(96 * m), now_msg: 'loop 212 of 500', stages: []}),
+    job({id: 'd-7', name: 'Write API tests', label: 'GPT-6.1-Terra (medium)', state: 'queued', started: ago(6 * m), after: ['d-1']}),
+    job({id: 'd-8', name: 'Tidy build scripts', label: 'general-purpose', source: 'claude', backend: 'claude', state: 'queued', started: ago(5 * m), after: ['d-2']}),
+    landed('f-1', 'Fix flaky login test', 'GPT-6.1-Sol (medium)', 'codex', 14, 'done'), landed('f-2', 'Tidy the changelog', 'Kimi K3.1 Pro', 'kimi', 52, 'done', {flags: 1}),
+    landed('f-3', 'Profile startup time', 'GPT-6.1-Sol (high)', 'codex', 86, 'done'), landed('f-4', 'Offline install check', 'GPT-6.1-Terra (high)', 'codex', 101, 'failed'),
+    landed('f-5', 'Translate error messages', 'GLM 5.3 Flash (Nous)', 'kimi', 150, 'done', {provider: 'nous'}), landed('f-6', 'Rebuild the search index', 'Background command', 'shell', 205, 'done'),
+    landed('f-7', 'Screenshot the new menu', 'GPT-6.1-Terra (high)', 'codex', 262, 'done', {flags: 2}), landed('f-8', 'Audit the save format', 'general-purpose', 'claude', 318, 'done', {source: 'claude'}),
+  ];
+  if (DEMO === 'crowd') for (let i = 0; i < 9; i++) jobs.push(job({id: 'c-' + i, name: ['Lint the docs', 'Check links', 'Sort imports', 'Bump versions', 'Scan licences',
+      'Trim assets', 'Rename modules', 'Draft the changelog', 'Measure coverage'][i], label: i % 2 ? 'Kimi K3.1 Pro' : 'DeepSeek V4.1 Flash (Nous)',
+    backend: 'kimi', provider: i % 2 ? undefined : 'nous', started: ago((5 + i * 9) * m), max_minutes: 100, busy: 2 + i, phase: 'working', stages: []}));
+  return Object.assign(base, {can_answer: true, jobs, slots: [
+    {name: 'build', slots: 1, held: [{slot: 1, holder: 'd-2', since: ago(5 * m)}], waiting: [{holder: 'd-4', since: ago(4 * m)}], closed: shut},
+    {name: 'test-copy', slots: 4, held: [{slot: 1, holder: 'd-1', since: ago(31 * m)}, {slot: 2, holder: 'd-6', since: ago(90 * m)}], waiting: [], baseline: ago(90 * m), closed: shut},
+    Object.assign(empty('bootloop'), {closed: shut}), Object.assign(empty('desktop'), {closed: shut}), Object.assign(empty('emulator'), {closed: shut})]});
+}
+
+async function poll() {
+  try {
+    const d = DEMO !== null ? demo() : await (await fetch('/api/jobs')).json();
+    spotNews(d);
+    data = d; fetchedAt = performance.now(); scene = build(d);
+    if (selected && !scene.jobs.some(j => j.id === selected)) selected = null;
+    chrome();
+    document.getElementById('upd').textContent = DEMO !== null ? 'demo data' : 'live';
+  } catch (e) { document.getElementById('upd').textContent = 'feed unreachable'; }
+}
+const first = new URLSearchParams(location.search).get('select');
+if (first) selected = first;
+resize(); poll(); setInterval(poll, DEMO !== null ? 1500 : 3000); requestAnimationFrame(draw);
+</script>
+</body>
+</html>

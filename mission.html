@@ -150,7 +150,7 @@ form.msg button { padding: 5px 11px; border-radius: 7px; border: 1px solid var(-
   <div class="stats" id="stats"></div>
   <div class="slots" id="slots"></div>
   <span class="grow"></span>
-  <div class="right"><span id="upd">connecting…</span><span id="clock" class="mono"></span><a href="/evidence">Review</a><a href="/">Feed ↗</a></div>
+  <div class="right"><span id="upd">connecting…</span><span id="clock" class="mono"></span><a href="/orbit">Orbit</a><a href="/evidence">Review</a><a href="/">Feed ↗</a></div>
 </header>
 <div id="alerts"></div>
 <main>
@@ -334,8 +334,9 @@ function render(d) {
   document.getElementById('stats').innerHTML = stat(live.length, 'in flight', '') + stat(asking.length, 'asking', 'ask') +
     stat(quiet.length, 'quiet', 'quiet') + stat(queued.length, 'queued', '') + stat(done.length, 'landed', '') + `<a href="/evidence" title="Open the review page" style="text-decoration:none;color:inherit">${stat(flagged, 'need a look', 'flag')}</a>`;
   document.getElementById('slots').innerHTML = (d.slots || []).map(r =>
-    `<span class="slot" title="${esc(r.held.map(h => `slot ${h.slot}: ${h.holder}`).join('\n') || 'free')}">${esc(r.name)} ` +
-    Array.from({length: r.slots}, (_, i) => `<i class="pip ${i < r.held.length ? 'on' : ''}"></i>`).join('') + '</span>').join('') +
+    `<span class="slot" title="${esc([r.held.map(h => `slot ${h.slot}: ${h.holder}`).join('\n') || 'free', ...(r.waiting || []).map(w => `waiting: ${w.holder}`)].join('\n'))}">${esc(r.name)} ` +
+    Array.from({length: r.slots}, (_, i) => `<i class="pip ${i < r.held.length ? 'on' : ''}"></i>`).join('') +
+    ((r.waiting || []).length ? ` +${r.waiting.length}` : '') + '</span>').join('') +
     (d.api_spend && (d.api_spend.month || d.api_spend.budget) ? `<span class="slot" title="Claude API spend recorded this month">API ` +
       `<b class="mono" style="color:${d.api_spend.budget && d.api_spend.month >= d.api_spend.budget * 0.8 ? 'var(--red)' : 'var(--ink)'}">` +
       `$${d.api_spend.month.toFixed(2)}${d.api_spend.budget ? ' / $' + d.api_spend.budget : ''}</b></span>` : '');

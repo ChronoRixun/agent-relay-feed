@@ -144,6 +144,7 @@ form.send.tell button { background: var(--blue); }
   <span class="spacer"></span>
   <a class="link" href="/evidence" style="color:var(--blue);text-decoration:none" title="Finished jobs that need a look, with the evidence they cite">Review</a>
   <a class="link" href="/mission" style="color:var(--blue);text-decoration:none" title="Timeline view of every agent">Mission control ↗</a>
+  <a class="link" href="/orbit" style="color:var(--blue);text-decoration:none" title="The machine as an orrery: agents, slots and finished jobs">Orbit ↗</a>
   <span class="muted" id="upd">connecting…</span>
   <button class="link" id="theme" title="Switch light / dark">◐</button>
 </header>
@@ -300,8 +301,12 @@ function spend(s, what = 'API') {
 function slots(list, now) {
   return list.map(r => {
     const who = r.held.map(h => `slot ${h.slot}: ${h.holder} (${dur(now - (h.since || now))})`).join('\n') || 'free';
-    const cls = r.held.length >= r.slots ? 'agent' : 'free';
-    return `<span class="pill ${cls}" title="${esc(who)}"><span class="dot"></span>${esc(r.name)} ${r.held.length}/${r.slots}</span>`;
+    const waiting = r.waiting || [];
+    const tip = [who, ...waiting.map(w => `waiting: ${w.holder} (${dur(now - (w.since || now))})`),
+                 ...(r.baseline ? ['shared state saved; put back when the last holder leaves'] : []),
+                 ...(r.restored && r.restored.ok === false ? ['shared state NOT restored: ' + r.restored.error] : [])].join('\n');
+    const cls = r.restored && r.restored.ok === false ? 'unknown' : r.held.length >= r.slots ? 'agent' : 'free';
+    return `<span class="pill ${cls}" title="${esc(tip)}"><span class="dot"></span>${esc(r.name)} ${r.held.length}/${r.slots}${waiting.length ? ` +${waiting.length} waiting` : ''}</span>`;
   }).join(' ');
 }
 function render(d) {

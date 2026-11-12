@@ -154,7 +154,7 @@ class LeaseCommandTests(unittest.TestCase):
             tail.pump()
 
         feed(codex_command('item.started', lease))
-        self.assertEqual(tail.wanted, {'build'})
+        self.assertEqual(tail.wanted, {'build': 1})
         self.assertIn('job-b', json.loads((jd / 'lease.wait').read_text())['build'])
         # the worker's own command cannot write the lease file: it reports what the runner recorded
         with patch.object(D, 'take_slot', side_effect=PermissionError):
@@ -163,7 +163,7 @@ class LeaseCommandTests(unittest.TestCase):
         self.assertIn('job-b', waiting)
         L.release(self.td, 'job-b')
         tail.grant()                                    # the runner retries on every tick
-        self.assertEqual(tail.wanted, set())
+        self.assertEqual(tail.wanted, {})
         with patch.object(D, 'take_slot', side_effect=PermissionError):
             self.assertIn('GRANTED: build slot 1', self.call(D.cmd_lease, job='job-a', holder=None, wait=0, resource='build'))
         feed(codex_command('item.completed', 'python "D:/x/delegate.py" release --job job-a build', 'item_9', 0))
@@ -179,7 +179,7 @@ class LeaseCommandTests(unittest.TestCase):
                                          json.dumps(codex_command('item.completed', lease, exit_code=0)) + '\n',
                                          encoding='utf-8')
         tail.pump()
-        self.assertEqual(tail.wanted, set())
+        self.assertEqual(tail.wanted, {})
 
     def test_finished_job_holds_nothing(self):
         jd, meta = make_job(self.td, 'job-a')

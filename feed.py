@@ -35,6 +35,7 @@ HERE = Path(__file__).resolve().parent
 PAGE = HERE / 'feed.html'
 MISSION_PAGE = HERE / 'mission.html'
 EVIDENCE_PAGE = HERE / 'evidence.html'
+ORBIT_PAGE = HERE / 'orbit.html'
 STALL_S = CONFIG["stall_seconds"]
 LOOP_N = CONFIG["loop_count"]
 
@@ -406,7 +407,7 @@ def job_summary(jd, now):
         errors=st.get('errors') or [],
         source='relay', agent_type=None, depth=None, parent=None, tokens=st.get('usage'),
         total_cost_usd=st.get('total_cost_usd'), verdict=st.get('verdict'), flags=st.get('flags') or 0, stages=stages, after=meta.get('after') or [],
-        provider=meta.get('provider'),
+        provider=meta.get('provider'), max_minutes=meta.get('max_minutes'),
         resumed_by=st.get('resumed_by'), died=False, resume=None, **info,
     )
 
@@ -439,7 +440,7 @@ def claude_job_summary(rec, now):
     finished = rec['finished']
     return dict(
         id=rec['id'], name=rec['label'], profile=rec['agent_type'], label=rec['model'] or 'Claude',
-        backend='claude', mode=None, cwd=rec['workdir'], state=rec['state'], total_cost_usd=None,
+        backend='claude', mode=None, cwd=rec['workdir'], state=rec['state'], total_cost_usd=None, max_minutes=None,
         started=rec['started'], finished=finished, elapsed=(finished or now) - rec['started'],
         idle=idle if running else None, stalled=running and idle > STALL_S, loop=running and loop, retries=0,
         now_msg=msgs[-1]['text'] if msgs else None, now_msg_t=msgs[-1]['t'] if msgs else None,
@@ -566,12 +567,15 @@ def snapshot(hours, demo=False):
     cwds = [(j['name'], j.get('cwd')) for j in jobs if j['state'] in ('running', 'starting') and j.get('source') != 'claude']
     try:
         slots = D.leases.snapshot(D.DELEGATE_ROOT, CONFIG['resources'], D.job_running, now) if CONFIG['resources'] else []
+        for row in slots:   # programs of the machine's owner that keep new holders out for now
+            names = (CONFIG['resources'].get(row['name']) or {}).get('yield_to')
+            row['closed'] = D.owner_programs(names) if names else []
     except Exception:       # an unreadable lease file must not blank the page
         slots = []
     return dict(now=now, jobs=jobs, processes=watched_processes(cwds), slots=slots, stall=STALL_S,
                 can_answer=bool(CONFIG['feed_pin']), api_spend=D.api_spend(now),
                 nous_spend=dict(month=D.nous.month_spend(D.DELEGATE_ROOT, now), budget=CONFIG['nous_monthly_usd'] or None),
-                process_panel=bool(CONFIG['watched_processes']))
+                process_panel=bool(CONFIG['watched_processes']), checkpoint_minutes=CONFIG['checkpoint_minutes'])
 
 
 # ------------------------------------------------------------------ evidence gallery
@@ -705,6 +709,7 @@ class Watcher(threading.Thread):
             D.start_ready()
         except Exception:
             pass
+        D.settle_slots()        # shared state goes back once the last holder of a resource is gone
         reader = claude_reader()
         if reader is None or not CONFIG['notify']:
             return
@@ -761,6 +766,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, PAGE.read_text(encoding='utf-8'), 'text/html; charset=utf-8')
         elif self.path.split('?')[0] in ('/mission', '/mission.html'):
             self._send(200, MISSION_PAGE.read_text(encoding='utf-8'), 'text/html; charset=utf-8')
+        elif self.path.split('?')[0] in ('/orbit', '/orbit.html'):
+            self._send(200, ORBIT_PAGE.read_text(encoding='utf-8'), 'text/html; charset=utf-8')
         elif self.path.split('?')[0] in ('/evidence', '/evidence.html'):
             self._send(200, EVIDENCE_PAGE.read_text(encoding='utf-8'), 'text/html; charset=utf-8')
         elif self.path.split('?')[0] == '/api/evidence':

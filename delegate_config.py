@@ -8,6 +8,8 @@ import re
 import sys
 from pathlib import Path
 
+import baseline
+
 CONFIG_PATH = Path.home() / ".claude" / "delegate" / "config.json"
 DEFAULTS = dict(path_shortening=[], watched_processes=[], feed_port=8765,
                 # Address the feed listens on. Loopback by default; "0.0.0.0" shows the (read-only,
@@ -25,6 +27,8 @@ DEFAULTS = dict(path_shortening=[], watched_processes=[], feed_port=8765,
                 # After a job, flag commands that usually need the owner's say-so (see results.guard).
                 # Extra rules: [{"pattern": "<regex>", "text": "<what it means>"}].
                 guard_enabled=True, guard_patterns=[],
+                # Folders any unsandboxed job may write besides its own (see results.outside_writes).
+                guard_allow_dirs=[],
                 # Monthly budget for Claude API jobs in USD, shown beside the month's spend (0 = no budget).
                 claude_api_monthly_usd=0,
                 # Minutes before a job's time limit at which the worker is told to wrap up (0 = no warning).
@@ -108,13 +112,15 @@ def _valid(key, value):
         return type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 120
     if key in ("stall_seconds", "polling_seconds", "claude_agents_window_hours", "ask_wait_seconds"):
         return type(value) in (int, float) and math.isfinite(value) and value > 0
-    if key in ("job_path_roots", "activity_ignore_paths", "codex_mcp_allow", "codex_plugins_allow",
+    if key in ("job_path_roots", "activity_ignore_paths", "codex_mcp_allow", "codex_plugins_allow", "guard_allow_dirs",
                "claude_agents_projects", "claude_api_mcp_allow"):
         return _strings(value)
     if key == "resources":
         return isinstance(value, dict) and all(
-            isinstance(name, str) and re.fullmatch(r"[\w.-]+", name) and isinstance(spec, dict)
+            isinstance(name, str) and re.fullmatch(r"[\w.-]+", name) and not name.startswith("_")
+            and isinstance(spec, dict)
             and type(spec.get("slots", 1)) is int and 1 <= spec.get("slots", 1) <= 64
+            and (spec.get("baseline") is None or baseline.valid(spec["baseline"]))
             and (spec.get("values") is None or (_strings(spec["values"]) and len(spec["values"]) == spec.get("slots", 1)))
             and (spec.get("yield_to") is None or _strings(spec["yield_to"]))
             and isinstance(spec.get("rule", ""), str)
@@ -159,7 +165,8 @@ CONFIG = load_config()
 
 
 _WORKER = re.compile(r"""delegate\.py\\?["']?\s+(phase|ask|check|lease|release)\b(.*)$""", re.S)
-_WORKER_OPT = re.compile(r"""--(?:job|wait|as)[=\s]+\\?["']?[\w.-]+\\?["']?""")
+_WORKER_OPT = re.compile(r"""--(?:job|wait|as|count)[=\s]+\\?["']?[\w.-]+\\?["']?""")
+_WORKER_COUNT = re.compile(r"""--count[=\s]+\\?["']?(\d{1,2})\b""")
 QUESTION_CHARS = 600
 
 
@@ -188,6 +195,13 @@ def worker_command(text):
         word = re.match(r"[\w.-]+", rest)
         return verb, word.group(0) if word else None
     return verb, rest[:120 if verb == "phase" else QUESTION_CHARS] or None
+
+
+def lease_count(text):
+    """How many slots a worker's `delegate.py lease ... --count N` command line asks for (1 if unsaid)."""
+    m = _WORKER.search(str(text or ""))
+    n = _WORKER_COUNT.search(m.group(2)) if m else None
+    return max(1, int(n.group(1))) if n else 1
 
 
 def phase_from_command(text):

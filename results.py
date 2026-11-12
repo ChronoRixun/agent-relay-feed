@@ -18,9 +18,11 @@ screenshot shows the right window or whether a test was honest; a clean check li
 """
 import json
 import os
+import posixpath
 import re
 import struct
 import subprocess
+import tempfile
 
 import capture
 
@@ -261,6 +263,138 @@ def guard(mode, activity_lines, extra_rules=()):
     if changed:
         found.append(dict(ok=False, text=f"GUARD: changed files in a read-only job ({len(changed)}x), e.g. {changed[0][:140]}"))
     return found
+
+
+# ---------------------------------------------------------------- writes outside the job's folders
+#
+# A worker without a sandbox (Kimi, and the Nous models that run in it) is only told where it may
+# write. After the job, its tool calls are read back: a file tool or a shell command that wrote or
+# deleted outside the working directory, the --add-dir folders and the job's own delegate folders
+# is flagged. File tools give exact paths. Shell commands are read by rule of thumb: absolute
+# paths that follow a deleting, writing, moving or copying command, a redirect, or `git -C`;
+# relative paths and paths built by a script are not seen.
+
+_FILE_TOOL = re.compile(r"write|edit|replace|delete|remove|create|patch|move|rename|mkdir|append|insert", re.I)
+_SHELL_TOOL = re.compile(r"bash|shell|powershell|pwsh|cmd|terminal|exec", re.I)
+_PATH_KEYS = ("path", "file_path", "filepath", "filename", "notebook_path", "target", "target_path", "destination",
+              "dest", "new_path", "old_path", "source_path")
+_ABS = r"(?:[A-Za-z]:[\\/]|/|~[\\/]|\$HOME[\\/]|\$env:\w+[\\/]|%\w+%[\\/])"
+_ANY_PATH = re.compile(rf"\"({_ABS}[^\"]*)\"|'({_ABS}[^']*)'|(?<![\w\"'=:.\\/-])({_ABS}[^\s\"'<>|;&)(,]*)")
+_SEGMENT = re.compile(r"&&|\|\||[;\n|]")
+_DELETES = re.compile(r"(?<![\w.-])(?:rm|rmdir|del|erase|rd|unlink|shred|truncate|Remove-Item|ri|Clear-Content)(?![\w.-])", re.I)
+_WRITES = re.compile(r"(?<![\w.-])(?:tee|touch|mkdir|md|ln|Set-Content|Add-Content|Out-File|New-Item|ni|Expand-Archive|"
+                     r"sed\s+-i\S*)(?![\w.-])", re.I)
+_MOVES = re.compile(r"(?<![\w.-])(?:mv|move|ren|rename|Move-Item|Rename-Item)(?![\w.-])|shutil\.move|os\.(?:rename|replace)", re.I)
+_COPIES = re.compile(r"(?<![\w.-])(?:cp|copy|xcopy|robocopy|rsync|Copy-Item)(?![\w.-])", re.I)
+_CODE_COPY = re.compile(r"shutil\.copy\w*\(([^()]*)\)")
+_CODE = re.compile(r"os\.(?:remove|unlink|rmdir|removedirs|makedirs|mkdir)\b|shutil\.rmtree|\.write_text\(|\.write_bytes\(|"
+                   r"\.unlink\(|\.rmdir\(|\.mkdir\(|\.touch\(|open\([^()]*,\s*['\"][wax][bt+]*['\"]|"
+                   r"\[(?:System\.)?IO\.File\]::(?:Write|Delete|Append)", re.I)
+_REDIRECT = re.compile(r"(?<![0-9&>])>>?\s*(?:\"([^\"]+)\"|'([^']+)'|([^\s\"'<>|;&)]+))")
+_GIT_C = re.compile(r"\bgit\b[^;|&\n]*?\s-C\s+(?:\"([^\"]+)\"|'([^']+)'|(\S+))[^;|&\n]*?\s(?:commit|checkout|switch|reset|clean|"
+                    r"merge|rebase|pull|add|rm|mv|apply|am|cherry-pick|restore|revert|init|stash(?!\s+(?:list|show))|"
+                    r"worktree\s+(?:add|remove|move|prune)|branch\s+-[dDmMcCf]|tag\s+-[adf])\b")
+_OWN_TOOL = re.compile(r"delegate\.py\\?[\"']?\s+(?:save|capture)\s+(?:\"([^\"]+)\"|'([^']+)'|(\S+))")
+_DESTINATION = re.compile(r"-Destination\s+(?:\"([^\"]+)\"|'([^']+)'|(\S+))", re.I)
+_SCRATCH = ("/tmp", "/var/tmp", "/dev", "/proc")
+
+
+def _first(match):
+    return next((g for g in match.groups() if g), "") if match else ""
+
+
+def shell_targets(command):
+    """The paths a shell command line seems to write or delete (absolute ones only; a guess)."""
+    found = []
+    for seg in _SEGMENT.split(str(command or "")):
+        found += [_first(m) for m in _REDIRECT.finditer(seg)]
+        found += [_first(m) for m in _GIT_C.finditer(seg)]
+        found += [_first(m) for m in _OWN_TOOL.finditer(seg)]
+        paths = [_first(m) for m in _ANY_PATH.finditer(seg)]
+        if not paths:
+            continue
+        if _DELETES.search(seg) or _WRITES.search(seg) or _MOVES.search(seg) or _CODE.search(seg):
+            found += paths
+        elif _CODE_COPY.search(seg):
+            # shutil.copy(source, destination): only a destination written out in full is seen
+            for m in _CODE_COPY.finditer(seg):
+                found += [_first(p) for p in _ANY_PATH.finditer(m.group(1).partition(",")[2])]
+        elif _COPIES.search(seg):
+            # only the place copied to is written: -Destination, else the last word
+            named = _first(_DESTINATION.search(seg))
+            last = seg.split()[-1].strip("\"'") if seg.split() else ""
+            found += [p for p in paths if p == (named or last) or (not named and seg.rstrip().rstrip("\"'").endswith(p))]
+    return [p for p in found if re.match(_ABS, p)]
+
+
+def _place(path, cwd, home):
+    """A path as written by a worker, made absolute and comparable; None if that cannot be done."""
+    p = str(path or "").strip().strip("\"'")
+    if not p:
+        return None
+    for name, value in (("~", home), ("$HOME", home), ("$env:USERPROFILE", home), ("%USERPROFILE%", home),
+                        ("$env:TEMP", tempfile.gettempdir()), ("%TEMP%", tempfile.gettempdir()),
+                        ("$env:TMP", tempfile.gettempdir()), ("%TMP%", tempfile.gettempdir())):
+        if p.lower().startswith(name.lower()) and p[len(name):len(name) + 1] in ("", "/", "\\"):
+            p = str(value) + p[len(name):]
+            break
+    p = p.replace("\\", "/")
+    if "$" in p or "%" in p or "`" in p or "*" in p:
+        return None                         # a variable or pattern we cannot resolve
+    # WSL (/mnt/d/...) and Git Bash (/d/...) spellings of a drive
+    m = re.match(r"/mnt/([A-Za-z])(/.*|$)", p) or (os.name == "nt" and re.match(r"/([A-Za-z])(/.*)", p))
+    if m:
+        p = f"{m.group(1)}:{m.group(2) or '/'}"
+    elif p.startswith("/") and os.name == "nt":
+        return None                         # a command switch (/q) or a path inside the shell's own world (/tmp, /usr)
+    if not re.match(r"[A-Za-z]:/|/", p):
+        p = str(cwd).replace("\\", "/").rstrip("/") + "/" + p
+    drive = re.match(r"[A-Za-z]:", p)
+    p = posixpath.normpath(p[2:] if drive else p)
+    return ((drive.group(0) if drive else "") + p).casefold() if drive or os.name == "nt" else p
+
+
+def outside_writes(events, *, cwd, allowed=(), home=None):
+    """Findings for an unsandboxed worker's writes and deletes outside what its job may change.
+    `events` are the lines of its event stream (assistant messages with tool calls); `allowed`
+    are extra folders (--add-dir and the job's own delegate folders)."""
+    home = home or os.path.expanduser("~")
+    roots = [r for r in (_place(a, cwd, home) for a in [*allowed, tempfile.gettempdir()]) if r]
+    roots.append(_place(cwd, cwd, home))
+    inside = lambda p, where: any(p == r or p.startswith(r.rstrip("/") + "/") for r in where)
+    outside = {}
+    for line in events:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        for call in (event.get("tool_calls") or []) if isinstance(event, dict) else []:
+            fn = call.get("function") or {} if isinstance(call, dict) else {}
+            name, raw = str(fn.get("name") or ""), fn.get("arguments")
+            try:
+                args = json.loads(raw) if isinstance(raw, str) else raw
+            except ValueError:
+                args = None
+            args = args if isinstance(args, dict) else {}
+            if _SHELL_TOOL.search(name):
+                targets = shell_targets(args.get("command") or args.get("cmd") or "")
+                how = " ".join(str(args.get("command") or args.get("cmd") or "").split())[:100]
+            elif _FILE_TOOL.search(name):
+                targets = [args[k] for k in _PATH_KEYS if isinstance(args.get(k), str)]
+                how = f"the {name} tool"
+            else:
+                continue
+            for target in targets:
+                place = _place(target, cwd, home)
+                if place is None or inside(place, roots) or inside(place, _SCRATCH):
+                    continue
+                outside.setdefault(place, how)
+    if not outside:
+        return []
+    shown = "; ".join(f"{p} (by {how})" for p, how in list(outside.items())[:3])
+    return [dict(ok=False, text=f"GUARD: wrote or deleted outside the job's folders ({len(outside)} "
+                                f"path{'s' if len(outside) != 1 else ''}), e.g. {shown}; check the brief allowed it "
+                                "(allow a folder with --add-dir)")]
 
 
 def digest(text, started=None, git=_git):

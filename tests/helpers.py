@@ -4,6 +4,7 @@
 import contextlib
 import secrets
 import shutil
+import time
 from pathlib import Path
 
 
@@ -18,7 +19,16 @@ def temporary_directory():
     try:
         yield str(path)
     finally:
-        shutil.rmtree(path)
+        # On Windows a scanner or indexer can hold a just-closed file (the lease lock) for a
+        # moment; that is not a failure of the test.
+        for attempt in range(20):
+            try:
+                shutil.rmtree(path)
+                break
+            except PermissionError:
+                if attempt == 19:
+                    raise
+                time.sleep(0.1)
 
 
 def windows_path(suffix, *, drive='E', backslashes=False):

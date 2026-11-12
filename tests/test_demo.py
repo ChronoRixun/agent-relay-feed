@@ -40,7 +40,9 @@ class DemoTests(unittest.TestCase):
                 else:
                     self.assertIsInstance(event['text'], str)
         self.assertEqual(set(snap), {'now', 'jobs', 'processes', 'process_panel', 'slots', 'stall',
-                                     'can_answer', 'api_spend', 'nous_spend'})
+                                     'can_answer', 'api_spend', 'nous_spend', 'checkpoint_minutes'})
+        for row in snap['slots']:       # the same keys a live slot row has
+            self.assertEqual(set(row), {'name', 'slots', 'rule', 'held', 'waiting', 'baseline', 'restored', 'closed'})
         process_renderer = page.split('function pc(')[1].split('function render(')[0]
         for process in snap['processes']:
             self.assertTrue(set(re.findall(r'\bp\.([a-z_]+)', process_renderer)) <= process.keys())

@@ -55,8 +55,8 @@ _FINISHED = (
     ('test-payment-webhooks', 'failed', 'Webhook integration tests failed: sample service unavailable.'),
     ('prototype-search-index', 'cancelled', 'Cancelled after comparing index options; no changes saved.'),
 )
-# Fields the bridge adds to every card: stage, open question, queue, result checks, review mark.
-_EXTRA = dict(total_cost_usd=None, verdict=None, flags=0, provider=None, resumed_by=None, died=False, resume=None,
+# Fields the bridge adds to every card: stage, open question, queue, result checks, review mark, time limit.
+_EXTRA = dict(total_cost_usd=None, verdict=None, flags=0, provider=None, resumed_by=None, died=False, resume=None, max_minutes=None,
               phase=None, phase_since=None, phases=0, question=None, question_since=None, queued=0, reviewed=False)
 _STAGES = {
     'refactor-auth-module': ('Reading the session code', 'Extracting the helper', 'Running auth tests'),
@@ -142,6 +142,7 @@ def demo_snapshot(hours=12, now=None):
         entry['progress'] = [f'{stamp(idle + 45)} {note}']
         entry['events'].insert(-1, dict(t=stamp(idle + 45), kind='message', text=note))
         entry['retries'] = 3 if profile == 1 else 0
+        entry['max_minutes'] = 180      # the default time limit of a relay job
         jobs.append(entry)
     # The running Claude subagent sits second so it is visible beside the relay cards.
     for spec in _CLAUDE:
@@ -163,13 +164,16 @@ def demo_snapshot(hours=12, now=None):
         entry.update(verdict={'done': 'pass', 'failed': 'fail'}.get(state),
                      flags=1 if name in _FLAGGED else 0, reviewed=state == 'done' and i >= 3)
         jobs.append(entry)
+    # The shape of leases.snapshot() plus the owner programs that keep a resource closed.
     slots = [
         dict(name='build', slots=1, rule=None,
-             held=[dict(slot=1, holder='demo-refactor-auth-module', value=None, since=now - 4 * 60)]),
+             held=[dict(slot=1, holder='demo-refactor-auth-module', value=None, since=now - 4 * 60)],
+             waiting=[dict(holder='demo-write-api-tests', since=now - 2 * 60)], baseline=None, restored=None, closed=[]),
         dict(name='test-database', slots=2, rule=None,
-             held=[dict(slot=1, holder='demo-migrate-db-schema', value=None, since=now - 31 * 60)]),
+             held=[dict(slot=1, holder='demo-migrate-db-schema', value=None, since=now - 31 * 60)],
+             waiting=[], baseline=now - 31 * 60, restored=None, closed=[]),
     ]
-    return dict(now=now, jobs=jobs, slots=slots, stall=480, can_answer=False,
+    return dict(now=now, jobs=jobs, slots=slots, stall=480, can_answer=False, checkpoint_minutes=10,
                 api_spend=dict(month=6.4, budget=50), nous_spend=dict(month=0.42, budget=10),
                 process_panel=True, processes=[
         dict(pid='4201', name='node.exe', path='~/code/shop-api/tools/node.exe',

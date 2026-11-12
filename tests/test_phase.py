@@ -112,6 +112,33 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(sent[0][0], 200)
         self.assertIn('MISSION CONTROL', sent[0][1])
 
+    def test_orbit_page_is_served_and_draws_only_invented_data_in_demo(self):
+        sent = []
+        handler = SimpleNamespace(path='/orbit?demo=playing', _send=lambda code, body, ctype: sent.append((code, body, ctype)))
+        F.Handler.do_GET(handler)
+        self.assertEqual((sent[0][0], sent[0][2]), (200, 'text/html; charset=utf-8'))
+        page = sent[0][1]
+        self.assertIn('<title>Orbit', page)
+        self.assertIn("DEMO !== null ? demo() : await (await fetch('/api/jobs')).json()", page)    # demo never asks the server
+        self.assertIn('This is invented demo data', page)                                          # and never sends anything
+        self.assertNotIn('http://', page.replace('http://www.w3.org', ''))                         # nothing loaded from elsewhere
+        self.assertNotIn('https://', page)
+        for link in ('href="/mission"', 'href="/evidence"', 'href="/"'):
+            self.assertIn(link, page)
+
+    def test_the_feed_says_how_long_a_job_may_run_and_who_keeps_a_slot_closed(self):
+        with temporary_directory() as td:
+            jd, meta = make_job(td, 'job-a')
+            meta.update(max_minutes=90)
+            (jd / 'meta.json').write_text(json.dumps(meta), encoding='utf-8')
+            resources = {'test-copy': {'slots': 2, 'yield_to': ['TheApp.exe']}, 'build': {'slots': 1}}
+            with patch.multiple(D, JOBS_ROOT=Path(td) / 'jobs', AGENTS_ROOT=Path(td) / 'agents', DELEGATE_ROOT=Path(td),
+                                owner_programs=lambda names: ['TheApp.exe (the owner)'] if names else []),                  patch.dict(F.CONFIG, resources=resources, claude_agents_enabled=False, checkpoint_minutes=10):
+                snap = F.snapshot(12)
+            self.assertEqual(next(j for j in snap['jobs'] if j['id'] == 'job-a')['max_minutes'], 90)
+            self.assertEqual(snap['checkpoint_minutes'], 10)
+            self.assertEqual({r['name']: r['closed'] for r in snap['slots']}, {'test-copy': ['TheApp.exe (the owner)'], 'build': []})
+
 
 class ClaudeSubagentPhaseTests(unittest.TestCase):
     def test_transcript_phase_from_bash_command(self):
