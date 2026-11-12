@@ -55,6 +55,20 @@ _FINISHED = (
     ('test-payment-webhooks', 'failed', 'Webhook integration tests failed: sample service unavailable.'),
     ('prototype-search-index', 'cancelled', 'Cancelled after comparing index options; no changes saved.'),
 )
+# Fields the bridge adds to every card: stage, open question, queue, result checks, review mark.
+_EXTRA = dict(total_cost_usd=None, verdict=None, flags=0, provider=None, resumed_by=None, died=False, resume=None,
+              phase=None, phase_since=None, phases=0, question=None, question_since=None, queued=0, reviewed=False)
+_STAGES = {
+    'refactor-auth-module': ('Reading the session code', 'Extracting the helper', 'Running auth tests'),
+    'write-api-tests': ('Listing untested endpoints', 'Writing tests'),
+    'review-pr-482': ('Reading the diff', 'Tracing refresh-token callers'),
+    'migrate-db-schema': ('Backfill on sample data', 'Rollback rehearsal', 'Comparing row counts'),
+}
+_QUESTIONS = {
+    'migrate-db-schema': 'Row counts differ by 3 on the sample copy (soft-deleted rows). '
+                         'Count them as migrated, or stop here?',
+}
+_FLAGGED = ('update-dependencies',)
 
 
 def demo_snapshot(hours=12, now=None):
@@ -84,6 +98,7 @@ def demo_snapshot(hours=12, now=None):
             counts=dict(commands=steps, failed=0, files=steps // 4, messages=0, errors=0),
             events=events, progress=[], result=result, errors=[],
             source='relay', agent_type=None, depth=None, parent=None, tokens=None,
+            **dict(_EXTRA, stages=[], after=[]),
         )
 
     def claude(name, kind, model, depth, parent, age, idle, steps, state, finish_age, text):
@@ -105,11 +120,22 @@ def demo_snapshot(hours=12, now=None):
             events=events, progress=[], result=None if running else text, errors=[],
             source='claude', agent_type=kind, depth=depth, parent=parent,
             tokens=dict(output=steps * 1400, context=60000 + steps * 2500),
+            **dict(_EXTRA, stages=[], after=[]),
         )
+
+    def staged(entry, names, age):
+        """Give a job the stages it named so far, evenly spaced over its run."""
+        entry['stages'] = [dict(t=now - age + age * i / len(names), kind='phase', text=text)
+                           for i, text in enumerate(names)]
+        entry.update(phase=names[-1], phase_since=entry['stages'][-1]['t'], phases=len(names))
 
     jobs = []
     for name, profile, age, idle, steps, note in _RUNNING:
         entry = job(name, profile, age, idle, steps)
+        staged(entry, _STAGES[name], age)
+        if name in _QUESTIONS:
+            entry.update(question=_QUESTIONS[name], question_since=now - idle)
+            entry['stages'].append(dict(t=now - idle, kind='asked', text=_QUESTIONS[name]))
         entry['now_msg'] = note
         entry['now_msg_t'] = stamp(idle + 45)
         entry['counts']['messages'] = 4
@@ -133,8 +159,19 @@ def demo_snapshot(hours=12, now=None):
             entry['counts']['failed'] = 1
             entry['current']['rc'] = 1
             entry['errors'] = [result]
+        # What the result checks add: the worker's verdict, claims that did not check out, the owner's review mark.
+        entry.update(verdict={'done': 'pass', 'failed': 'fail'}.get(state),
+                     flags=1 if name in _FLAGGED else 0, reviewed=state == 'done' and i >= 3)
         jobs.append(entry)
-    return dict(now=now, jobs=jobs, process_panel=True, processes=[
+    slots = [
+        dict(name='build', slots=1, rule=None,
+             held=[dict(slot=1, holder='demo-refactor-auth-module', value=None, since=now - 4 * 60)]),
+        dict(name='test-database', slots=2, rule=None,
+             held=[dict(slot=1, holder='demo-migrate-db-schema', value=None, since=now - 31 * 60)]),
+    ]
+    return dict(now=now, jobs=jobs, slots=slots, stall=480, can_answer=False,
+                api_spend=dict(month=6.4, budget=50), nous_spend=dict(month=0.42, budget=10),
+                process_panel=True, processes=[
         dict(pid='4201', name='node.exe', path='~/code/shop-api/tools/node.exe',
              who='dev server (you)', owner_kind='owner'),
         dict(pid='4202', name='pytest', path='~/code/shop-api/.venv/bin/pytest',

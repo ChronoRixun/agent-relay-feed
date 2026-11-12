@@ -179,7 +179,7 @@ class ReaderTests(unittest.TestCase):
             ('tool call pending', [prompt(t), tool(t + 1, 'Bash', dict(command='make'), 't1')], {}, NOW - 30, 'running', False),
             ('quiet past stall', [prompt(t), tool(t + 1, 'Bash', dict(command='make'), 't1')], {}, NOW - 500, 'running', True),
             ('session gone', [prompt(t - 9000), tool(t - 8999, 'Bash', dict(command='make'), 't1')], {}, NOW - 7200, 'lost', False),
-            ('api error', [prompt(t), dict(say(t + 1, 'API Error: overloaded', mid='e1', stop='stop_sequence', model='<synthetic>'),
+            ('api error', [prompt(t), dict(say(t + 1, 'API Error: prompt is too long', mid='e1', stop='stop_sequence', model='<synthetic>'),
                                            isApiErrorMessage=True, error='server_error')], {}, NOW - 60, 'failed', False),
             ('stopped by user', [prompt(t), tool(t + 1, 'Bash', dict(command='make'), 't1'), result(t + 2, 't1', True),
                                  prompt(t + 3, '[Request interrupted by user]')], dict(stoppedByUser=True), NOW - 60, 'cancelled', False),

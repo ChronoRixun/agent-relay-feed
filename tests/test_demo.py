@@ -26,7 +26,7 @@ class DemoTests(unittest.TestCase):
         page = F.PAGE.read_text(encoding='utf-8')
         page_fields = set(re.findall(r'\bj\.([a-z_]+)', page))
         for job in snap['jobs']:
-            self.assertEqual(set(job), set(live))
+            self.assertEqual(set(job), set(live) | {'reviewed'})     # the snapshot adds the review mark
             self.assertTrue(page_fields <= job.keys())
             self.assertTrue(set(re.findall(r'\bk\.([a-z_]+)', page)) <= job['counts'].keys())
             self.assertIsInstance(job['elapsed'], (int, float))
@@ -39,7 +39,8 @@ class DemoTests(unittest.TestCase):
                     self.assertTrue({'t', 'kind', 'rc', 'icon', 'verb', 'detail', 'more', 'raw'} <= event.keys())
                 else:
                     self.assertIsInstance(event['text'], str)
-        self.assertEqual(set(snap), {'now', 'jobs', 'processes', 'process_panel'})
+        self.assertEqual(set(snap), {'now', 'jobs', 'processes', 'process_panel', 'slots', 'stall',
+                                     'can_answer', 'api_spend', 'nous_spend'})
         process_renderer = page.split('function pc(')[1].split('function render(')[0]
         for process in snap['processes']:
             self.assertTrue(set(re.findall(r'\bp\.([a-z_]+)', process_renderer)) <= process.keys())

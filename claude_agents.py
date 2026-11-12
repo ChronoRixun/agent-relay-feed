@@ -23,7 +23,8 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-from delegate_config import CONFIG, normalize_path, shorten_paths
+import results
+from delegate_config import CONFIG, TRANSIENT, normalize_path, phase_from_command, shorten_paths
 
 DONE_GRACE_S = 5        # a closed turn must stay quiet this long before the agent counts as done
 EVENTS_KEPT = 60
@@ -140,6 +141,9 @@ class Transcript:
         self.cur_msg, self.cur_usage = None, {}
         self.usage = Counter()      # finished messages' usage
         self.context = 0            # prompt size of the latest message
+        self.phase, self.phase_since, self.phases = None, None, 0   # from `delegate.py phase "..."` commands
+        self.stage_log = []         # every stage named so far, for the timeline
+        self._checked = (None, None)    # (final text it was computed for, its result digest)
 
     # ------------------------------------------------------------ reading
 
@@ -237,6 +241,10 @@ class Transcript:
                 name, inp = str(b.get("name") or "tool"), b.get("input") if isinstance(b.get("input"), dict) else {}
                 step = dict(t=stamp, kind="command", rc=0, **self.humanize(name, inp))
                 self.steps += 1
+                phase = phase_from_command(inp.get("command")) if name in ("Bash", "PowerShell") else None
+                if phase:
+                    self.phase, self.phase_since, self.phases = phase, t, self.phases + 1
+                    self.stage_log = (self.stage_log + [dict(t=t, kind="phase", text=phase)])[-200:]
                 if name in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
                     self.edits += 1
                 path = _tool_path(inp)
@@ -254,6 +262,17 @@ class Transcript:
             self.api_error = (str(ev.get("error") or "API error")) if (ev.get("isApiErrorMessage") or stop == "refusal") else None
         elif stop == "tool_use":
             self.turn_open = True
+        # A subagent may finish by handing its report back through a tool call; no end-of-turn
+        # message follows that, so the call itself closes the turn (a follow-up reopens it).
+        handback = next((b for b in msg.get("content") or [] if isinstance(b, dict)
+                         and b.get("type") == "tool_use" and b.get("name") == "SubagentHandback"), None)
+        if handback is not None:
+            self.turn_open = False
+            self.pending.clear()
+            self.api_error = None
+            report = (handback.get("input") or {}).get("message") if isinstance(handback.get("input"), dict) else None
+            if isinstance(report, str) and report.strip():
+                self.last_text, self.last_text_msg = [report], mid
 
     def _event(self, event):
         self.events.append(event)
@@ -298,7 +317,23 @@ class Transcript:
             result = "\n".join(lines[:RESULT_LINES])[:RESULT_CHARS]
             if len(lines) > RESULT_LINES:
                 result += "\n…"
+        # cut off by the connection (an expired certificate, a reset): nothing the agent did, and only
+        # the session that started it can resume it
+        died = state == "failed" and bool(TRANSIENT.search(" ".join([str(self.api_error or "")] + self.last_text)))
+        checked = None
+        if state == "done" and self.last_text:
+            # a subagent asked to end with a result block gets the same claim checks as a relay job;
+            # they read files and run git, so they are done once per final message
+            final = "\n".join(self.last_text)
+            if self._checked[0] != final:
+                try:
+                    digest = results.digest(final, self.started)
+                except Exception:
+                    digest = None
+                self._checked = (final, digest if digest and digest.get("data") is not None else None)
+            checked = self._checked[1]
         return dict(
+            checked=checked, verdict=checked["verdict"] if checked else None, flags=checked["flags"] if checked else 0,
             id="agent-" + self.agent_id, agent_id=self.agent_id, path=str(self.path),
             project=self.project, session=self.session,
             label=_one_line(meta.get("description"), 120) or f"Claude subagent {self.agent_id[:8]}",
@@ -308,9 +343,14 @@ class Transcript:
             finished=last if state in TERMINAL else None, state=state, quiet=quiet,
             stalled=state == "running" and quiet > stall_s,
             tokens=dict(output=tokens["output_tokens"], context=self.context) if tokens else None,
+            phase=self.phase, phase_since=self.phase_since, phases=self.phases, stages=list(self.stage_log),
             steps=self.steps, failed=self.failed, edits=self.edits, messages=self.messages,
             events=self.events[-EVENTS_KEPT:], recent=list(self.recent), result=result,
-            errors=[f"API error: {_one_line(self.api_error, 200)}"] if state == "failed" else [],
+            died=died, resume=resume_hint(self.agent_id) if died else None,
+            final="\n".join(self.last_text) if state == "done" and self.last_text else None,
+            errors=([f"Died of a connection error ({_one_line(' '.join(self.last_text) or self.api_error, 160)}); "
+                     f"its task is not finished. {resume_hint(self.agent_id)}"] if died
+                    else [f"API error: {_one_line(self.api_error, 200)}"] if state == "failed" else []),
         )
 
     def mtime(self):
@@ -318,6 +358,21 @@ class Transcript:
             return self.path.stat().st_mtime
         except OSError:
             return None
+
+
+RESUME_MESSAGE = ("Your run was cut off by a connection error, not by anything you did. Check the state your work "
+                  "is in (files, commits, processes you started), do not redo finished work, and continue the task "
+                  "to its final report.")
+
+
+def resume_hint(agent_id):
+    """What the session that started a subagent sends to resume it after a connection error."""
+    return f'RESUME IT ONCE: SendMessage to "{agent_id}" with: {RESUME_MESSAGE}'
+
+
+def short_label(rec):
+    """The short name the board used to show for a subagent; `delegate.py` still accepts it."""
+    return f"{rec['agent_type'].rsplit(':', 1)[-1]}#{rec['id'][-4:]}"
 
 
 _NOTICE = re.compile(rb"<task-id>([0-9a-zA-Z]+)</task-id>.*?<status>(\w+)</status>")

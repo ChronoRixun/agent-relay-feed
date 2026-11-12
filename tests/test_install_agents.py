@@ -21,7 +21,7 @@ class InstallerTests(unittest.TestCase):
             home = Path(td)
             self.assertEqual(self.run_installer(home), 0)
             agents = home / '.claude' / 'agents'
-            self.assertEqual(len(list(agents.glob('*.md'))), 7)
+            self.assertEqual(len(list(agents.glob('*.md'))), len(I.SPECS))
             self.assertTrue((home / '.claude' / 'delegate' / 'inbox').is_dir())
             for spec in I.SPECS:
                 text = (agents / f"{spec['name']}.md").read_text(encoding='utf-8')
@@ -74,6 +74,45 @@ class InstallerTests(unittest.TestCase):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exc:
                 self.run_installer(home, '--only', 'unknown')
             self.assertEqual(exc.exception.code, 2)
+
+    def test_keep_description_survives_this_and_later_installs(self):
+        with temporary_directory() as td:
+            home = Path(td)
+            agents = home / '.claude' / 'agents'
+            agents.mkdir(parents=True)
+            path = agents / 'kimi-k3.md'
+            mine = 'Kimi K3: my own notes on when to use it, with "quotes".'
+            path.write_text('---\nname: kimi-k3\ndescription: ' + I.json.dumps(mine) +
+                            '\nmodel: sonnet\ntools: Bash, Read, Write\n---\n\nold hand-written body\n',
+                            encoding='utf-8', newline='\n')
+            # Without the flag a forced reinstall loses the owner's text.
+            self.assertEqual(self.run_installer(home, '--only', 'kimi-k3', '--force', '--keep-description'), 0)
+            text = path.read_text(encoding='utf-8')
+            self.assertTrue(I.is_generated(text))
+            self.assertEqual(I.front_matter(text), {'description': mine, 'model': 'sonnet'})
+            self.assertIn('--name "<3-6 word title of the task>"', text)
+            self.assertNotIn('old hand-written body', text)
+            saved = I.load_overrides(home)
+            self.assertEqual(saved, {'kimi-k3': {'description': mine, 'model': 'sonnet'}})
+            # A later plain install keeps it and reports no change.
+            self.assertEqual(self.run_installer(home, '--only', 'kimi-k3'), 0)
+            self.assertEqual(path.read_text(encoding='utf-8'), text)
+            # Other relays are untouched by the saved entry.
+            self.assertEqual(self.run_installer(home, '--only', 'kimi-k28'), 0)
+            other = I.front_matter((agents / 'kimi-k28.md').read_text(encoding='utf-8'))
+            self.assertEqual(other['model'], 'haiku')
+            self.assertNotEqual(other['description'], mine)
+
+    def test_keep_description_ignores_default_text_and_bad_files(self):
+        with temporary_directory() as td:
+            home = Path(td)
+            self.assertEqual(self.run_installer(home, '--only', 'kimi-k3'), 0)
+            self.assertEqual(self.run_installer(home, '--only', 'kimi-k3', '--force', '--keep-description'), 0)
+            self.assertFalse(I.overrides_path(home).exists())
+            I.overrides_path(home).write_text('not json', encoding='utf-8')
+            self.assertEqual(I.load_overrides(home), {})
+            self.assertEqual(I.front_matter('no header at all'), {})
+            self.assertEqual(I.front_matter('---\nmodel: bad model; rm\n---\n'), {})
 
     def test_previous_brand_marker_migrates_without_force(self):
         with temporary_directory() as td:

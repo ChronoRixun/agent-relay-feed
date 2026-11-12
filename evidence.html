@@ -1,0 +1,205 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright 2026 ChronoRixun -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review · Agent Relay Feed</title>
+<style>
+:root { --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #677085; --line: #e3e6ec; --soft: #f0f2f6;
+  --green: #1f9d55; --amber: #c27c0e; --red: #d64545; --blue: #2f6fd6; --check: #dfe3ea; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef;
+  --muted: #8f98aa; --line: #262c38; --soft: #1d222c; --green: #3fbf7f; --amber: #e3a23b; --red: #ef6b6b; --blue: #6c9cf0; --check: #232a36; } }
+:root[data-theme="dark"] { --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #8f98aa; --line: #262c38; --soft: #1d222c;
+  --green: #3fbf7f; --amber: #e3a23b; --red: #ef6b6b; --blue: #6c9cf0; --check: #232a36; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
+.mono { font-family: "Cascadia Mono", Consolas, ui-monospace, monospace; font-size: 12px; }
+a { color: var(--blue); text-decoration: none; }
+header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line); padding: 12px 16px;
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+h1 { font-size: 17px; margin: 0; font-weight: 650; }
+.spacer { flex: 1; } .muted { color: var(--muted); }
+label.opt { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); cursor: pointer; }
+main { padding: 16px; display: grid; gap: 22px; }
+.job h2 { margin: 0 0 4px; font-size: 15px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.job .sum { color: var(--muted); font-size: 13px; margin: 0 0 10px; overflow-wrap: anywhere; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
+.item { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+.item.bad { border-color: var(--red); } .item.seen { opacity: .62; }
+.job.done-review { opacity: .62; }
+.jobhead { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 0 0 4px; }
+.jobhead h2 { margin: 0; flex: 1 1 260px; }
+.problems { margin: 0 0 10px; padding: 8px 12px; list-style: none; border-left: 3px solid var(--red); background: var(--soft);
+  border-radius: 0 8px 8px 0; font-size: 13px; display: grid; gap: 3px; }
+.problems li { overflow-wrap: anywhere; }
+button.act { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 5px 12px;
+  font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+button.act.primary { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+button.act.small { padding: 2px 9px; font-size: 12px; justify-self: start; }
+.noev { color: var(--muted); font-size: 13px; margin: 0; }
+.shot { display: block; width: 100%; aspect-ratio: 16 / 10; border: 0; padding: 0; cursor: zoom-in;
+  background-color: var(--soft);
+  background-image: linear-gradient(45deg, var(--check) 25%, transparent 25%, transparent 75%, var(--check) 75%),
+    linear-gradient(45deg, var(--check) 25%, transparent 25%, transparent 75%, var(--check) 75%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.shot img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.nofile { aspect-ratio: 16 / 10; display: grid; place-items: center; color: var(--muted); background: var(--soft); padding: 12px; text-align: center; }
+pre.text { margin: 0; padding: 10px; max-height: 220px; overflow: auto; background: var(--soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+.body { padding: 10px 12px 12px; display: grid; gap: 6px; }
+.claim { font-weight: 600; overflow-wrap: anywhere; }
+.facts { display: flex; flex-wrap: wrap; gap: 5px 8px; font-size: 12px; }
+.badge { padding: 1px 8px; border-radius: 6px; background: var(--soft); color: var(--muted); }
+.badge.red { background: color-mix(in srgb, var(--red) 16%, transparent); color: var(--red); font-weight: 600; }
+.badge.green { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }
+.badge.amber { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); font-weight: 600; }
+.path { color: var(--muted); overflow-wrap: anywhere; }
+.empty { color: var(--muted); padding: 30px 18px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; }
+dialog { border: 0; padding: 0; background: rgba(8, 10, 14, .96); color: #e6e9ef; width: 100vw; height: 100vh; max-width: none; max-height: none; }
+dialog .bar { position: sticky; top: 0; left: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 10px 14px;
+  background: rgba(8, 10, 14, .9); z-index: 1; }
+dialog .bar b { overflow-wrap: anywhere; flex: 1 1 240px; }
+dialog button { background: #2a3140; color: #e6e9ef; border: 0; border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; }
+dialog .view { overflow: auto; height: calc(100vh - 52px); display: grid; place-items: center; }
+dialog .view.fit img { max-width: 100%; max-height: calc(100vh - 60px); }
+dialog .view.full { place-items: start; } dialog .view.full img { max-width: none; cursor: zoom-out; }
+dialog .view.fit img { cursor: zoom-in; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Review</h1>
+  <span class="muted" id="count"></span>
+  <span class="spacer"></span>
+  <label class="opt"><input type="checkbox" id="hide"> hide reviewed jobs</label>
+  <a href="/">Feed</a><a href="/mission">Mission control</a>
+</header>
+<main id="main"><div class="empty">Loading…</div></main>
+<dialog id="box">
+  <div class="bar"><b id="boxclaim"></b><span id="boxfacts" class="mono"></span>
+    <button id="zoom">Actual size</button><button id="mark">Mark as looked at</button><button id="close">Close</button></div>
+  <div class="view fit" id="view"><img id="boximg" alt=""></div>
+</dialog>
+<script>
+function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function safeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function dur(s) { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h ? `${h}h ${String(m).padStart(2, '0')}m` : m ? `${m}m` : `${s}s`; }
+function bytes(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' B'; }
+const seen = new Set(JSON.parse(safeGet('evidence.seen') || '[]'));
+let data = null, current = null;
+{ const t = safeGet('feed.theme'); if (t) document.documentElement.dataset.theme = t; }
+document.getElementById('hide').checked = safeGet('evidence.hide') === '1';
+
+function key(e) { return `${e.job}#${e.i}#${e.mtime || 0}`; }
+function facts(e) {
+  const out = [];
+  if (!e.exists) return ['<span class="badge red">file not found</span>'];
+  if (e.width) {
+    const claimed = e.claimed_width && e.claimed_height;
+    const ok = claimed && e.claimed_width === e.width && e.claimed_height === e.height;
+    out.push(`<span class="badge ${claimed ? (ok ? 'green' : 'red') : ''}">${e.width}×${e.height}${claimed && !ok ? ` — claimed ${e.claimed_width}×${e.claimed_height}` : ''}</span>`);
+  } else if (e.claimed_width) out.push('<span class="badge red">not a readable image</span>');
+  if (e.stale) out.push('<span class="badge amber">older than the job</span>');
+  out.push(`<span class="badge">${bytes(e.size)}</span>`);
+  return out;
+}
+function item(e) {
+  const bad = !e.exists || e.stale || (e.claimed_width && (e.width !== e.claimed_width || e.height !== e.claimed_height));
+  const src = `/api/evidence/file?job=${encodeURIComponent(e.job)}&i=${e.i}`;
+  const media = !e.exists ? '<div class="nofile">The file this job cites is not there.</div>'
+    : e.image ? `<button class="shot" data-open="${esc(key(e))}" title="Open"><img loading="lazy" src="${src}" alt="${esc(e.shows || 'evidence')}"></button>`
+    : `<pre class="text mono" data-text="${src}">loading…</pre>`;
+  return `<article class="item ${bad ? 'bad' : ''} ${seen.has(key(e)) ? 'seen' : ''}">${media}
+    <div class="body"><div class="claim">${esc(e.shows || '(no claim given)')}</div>
+    <div class="facts">${facts(e).join('')}${seen.has(key(e)) ? '<span class="badge green">looked at</span>' : ''}</div>
+    ${e.image ? `<div class="path" title="Recorded by delegate.py capture when the screenshot was taken">${e.captured
+      ? 'Captured from: ' + esc(e.captured) : 'No capture record: the window and program are not verified'}${
+      e.claimed_process ? ` · claimed: ${esc(e.claimed_process)}` : ''}</div>` : ''}
+    <div class="path mono">${esc(e.path)}</div>
+    <button class="act small" data-seen="${esc(key(e))}">${seen.has(key(e)) ? 'Not looked at' : 'Mark looked at'}</button></div></article>`;
+}
+function reviewButton(j) {
+  if (!j.needs_look && !j.reviewed) return '';
+  if (!data.can_review) return `<span class="muted" title="Set feed_pin in the config to review from this page">mark reviewed: <span class="mono">delegate.py reviewed ${esc(j.id)}</span></span>`;
+  return j.reviewed ? `<span class="badge green">reviewed</span><button class="act" data-review="${esc(j.id)}" data-undo="1">Undo</button>`
+    : `<button class="act primary" data-review="${esc(j.id)}">Mark reviewed</button>`;
+}
+function section(j) {
+  const badge = `<span class="badge ${j.reviewed ? 'green' : j.flags || j.state !== 'done' ? 'red' : j.verdict === 'pass' ? 'green' : 'amber'}">` +
+    `${esc(j.verdict || j.state)}${j.flags ? ` · ${j.flags} flagged` : ''}</span>`;
+  const problems = j.problems && j.problems.length && !j.reviewed
+    ? `<ul class="problems">${j.problems.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` : '';
+  return `<section class="job ${j.reviewed ? 'done-review' : ''}">
+    <div class="jobhead"><h2>${esc(j.name)} ${badge} <span class="muted mono" style="font-weight:400;font-size:12px">${esc(j.label || '')} · finished ${dur(data.now - j.finished)} ago</span></h2>
+      ${reviewButton(j)}</div>
+    <p class="sum">${esc(j.summary || '')}</p>${problems}
+    ${j.items.length ? `<div class="grid">${j.items.map(item).join('')}</div>` : '<p class="noev">This job cites no evidence files.</p>'}</section>`;
+}
+function render() {
+  const hide = document.getElementById('hide').checked, main = document.getElementById('main');
+  const jobs = data.jobs.filter(j => !(hide && j.reviewed));
+  const waiting = data.jobs.filter(j => j.needs_look && !j.reviewed).length;
+  document.getElementById('count').textContent = data.jobs.length
+    ? `${waiting} need${waiting === 1 ? 's' : ''} a look · ${data.jobs.length} job${data.jobs.length === 1 ? '' : 's'} listed` : '';
+  // jobs that still need a look first, newest first within each group
+  jobs.sort((a, b) => ((b.needs_look && !b.reviewed) - (a.needs_look && !a.reviewed)) || (b.finished - a.finished));
+  main.innerHTML = jobs.length ? jobs.map(section).join('')
+    : `<div class="empty">${data.jobs.length ? 'Everything listed has been reviewed.' : 'Nothing to review: no recent job needs a look or cites evidence.'}</div>`;
+  main.querySelectorAll('[data-text]').forEach(async el => {
+    try { el.textContent = await (await fetch(el.dataset.text)).text(); } catch { el.textContent = '(could not read the file)'; }
+  });
+}
+function find(k) { for (const j of data.jobs) for (const e of j.items) if (key(e) === k) return e; return null; }
+function mark(k, on) { on ? seen.add(k) : seen.delete(k); safeSet('evidence.seen', JSON.stringify([...seen].slice(-2000))); render(); }
+async function review(job, undo) {
+  let pin = safeGet('feed.pin') || prompt('PIN for this page (the feed_pin from the config)');
+  if (!pin) return;
+  let r, d = {};
+  try {
+    r = await fetch('/api/review', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({pin, job, undo})});
+    d = await r.json();
+  } catch (e) { alert('Could not reach the feed server.'); return; }
+  if (r.status === 401) { safeSet('feed.pin', ''); alert(d.error || 'Wrong PIN.'); return; }
+  if (!r.ok) { alert(d.error || 'That did not work.'); return; }
+  safeSet('feed.pin', pin);
+  const j = data.jobs.find(x => x.id === job);
+  if (j) { j.reviewed = !!d.reviewed; if (j.reviewed) j.items.forEach(e => seen.add(key(e))); safeSet('evidence.seen', JSON.stringify([...seen].slice(-2000))); }
+  render();
+}
+document.addEventListener('click', ev => {
+  const rv = ev.target.closest('[data-review]');
+  if (rv) { review(rv.dataset.review, !!rv.dataset.undo); return; }
+  const sn = ev.target.closest('[data-seen]');
+  if (sn) { mark(sn.dataset.seen, !seen.has(sn.dataset.seen)); return; }
+  const t = ev.target.closest('[data-open]'); if (!t) return;
+  current = find(t.dataset.open); if (!current) return;
+  document.getElementById('boxclaim').textContent = current.shows || current.path;
+  document.getElementById('boxfacts').textContent = `${current.width}×${current.height}` +
+    (current.claimed_width ? ` (claimed ${current.claimed_width}×${current.claimed_height})` : '');
+  document.getElementById('boximg').src = `/api/evidence/file?job=${encodeURIComponent(current.job)}&i=${current.i}`;
+  document.getElementById('view').className = 'view fit';
+  document.getElementById('zoom').textContent = 'Actual size';
+  document.getElementById('mark').textContent = seen.has(key(current)) ? 'Not looked at' : 'Mark as looked at';
+  document.getElementById('box').showModal();
+});
+function toggleZoom() {
+  const v = document.getElementById('view'), full = v.classList.toggle('full'); v.classList.toggle('fit', !full);
+  document.getElementById('zoom').textContent = full ? 'Fit to screen' : 'Actual size';
+}
+document.getElementById('zoom').onclick = toggleZoom;
+document.getElementById('boximg').onclick = toggleZoom;
+document.getElementById('close').onclick = () => document.getElementById('box').close();
+document.getElementById('mark').onclick = () => { mark(key(current), !seen.has(key(current))); document.getElementById('box').close(); };
+document.getElementById('hide').onchange = ev => { safeSet('evidence.hide', ev.target.checked ? '1' : '0'); render(); };
+async function load() {
+  try { data = await (await fetch('/api/evidence', {cache: 'no-store'})).json(); render(); }
+  catch { document.getElementById('main').innerHTML = '<div class="empty">The feed server is not answering.</div>'; }
+}
+load();
+setInterval(() => { if (!document.getElementById('box').open) load(); }, 20000);
+</script>
+</body>
+</html>

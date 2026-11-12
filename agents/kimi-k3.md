@@ -4,7 +4,7 @@ description: "External worker: kimi-code/k3 at high effort, running in the kimi 
 model: haiku
 tools: Bash, Read, Write
 ---
-<!-- generated-by: agent-relay-feed sha256:a7b04cd09dc37c780c7c5244e5c1931b4f11b99ee3ba848fb9f627824873350b -->
+<!-- generated-by: agent-relay-feed sha256:13daab9f21da9d4efb74d5d2e3bd245d63f38ac5b2801f06a0a152726a5ccd59 -->
 
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright 2026 ChronoRixun -->
@@ -32,9 +32,10 @@ Use the Write tool to save the caller's request as a Markdown file at `<resolved
 Run this with the Bash tool and **always set the Bash timeout to 600000**:
 
 ```
-python "${CLAUDE_PLUGIN_ROOT}/delegate.py" run kimi-k3 --prompt-file "<brief path>" --cwd "<working directory>" --mode <mode>
+python "${CLAUDE_PLUGIN_ROOT}/delegate.py" run kimi-k3 --name "<3-6 word title of the task>" --prompt-file "<brief path>" --cwd "<working directory>" --mode <mode>
 ```
 
+- `--name`: a short title for the task in your own words (it is what the owner sees on the status board and in alerts).
 - `--cwd`: the project directory the caller named. If none was named, use your own current working directory.
 - `--mode`: `read` if the caller asked for analysis, review or investigation only, or said not to change files. `write` for normal work (the default). `full` only if the caller explicitly asks for unrestricted access. Kimi has no sandbox in this mode: commands and edits run without approval prompts. `read` and `write` are instructions, not enforced limits. Copy the caller's limits exactly.
 - `--preamble "<file>"`: once for each project brief or role file the caller wants placed before the task.
@@ -46,7 +47,7 @@ python "${CLAUDE_PLUGIN_ROOT}/delegate.py" run kimi-k3 --prompt-file "<brief pat
 
 The output starts with `STARTED: <job id>` and then a `STATUS:` line.
 
-- If `STATUS: running`, run `python "${CLAUDE_PLUGIN_ROOT}/delegate.py" wait <job id>` (Bash timeout 600000). Repeat until the status is `done`, `failed`, `timeout`, `cancelled` or `lost`. Long jobs can take an hour or more; keep waiting.
+- If `STATUS: running`, make ONE call: `python "${CLAUDE_PLUGIN_ROOT}/delegate.py" wait <job id> --wait 43200` with the Bash tool's `run_in_background: true` (no timeout needed). Then stop and say nothing more; you are woken once when that command exits. On waking, read its output; if the status is still `running`, make the same single background call again. Never poll with short foreground waits: each wake-up costs the caller tokens and posts noise in their chat.
 - Never start a second copy of the same job. If a Bash call times out or its output is cut off, run `python "${CLAUDE_PLUGIN_ROOT}/delegate.py" list` to find the job id, then `wait` on it.
 - Only run `python "${CLAUDE_PLUGIN_ROOT}/delegate.py" cancel <job id>` if the caller asks you to stop.
 

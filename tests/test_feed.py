@@ -172,6 +172,7 @@ class FeedCliTests(unittest.TestCase):
     def test_server_uses_loopback_and_actual_port_and_closes(self):
         for args, should_open in [([], False), (['--open'], True)]:
             with self.subTest(args=args), patch.object(F, 'ThreadingHTTPServer') as server, \
+                 patch.dict(F.CONFIG, feed_host=C.DEFAULTS['feed_host']), \
                  patch.object(F.webbrowser, 'open', return_value=True) as browser, \
                  contextlib.redirect_stdout(io.StringIO()) as out:
                 server.return_value.server_port = 9876

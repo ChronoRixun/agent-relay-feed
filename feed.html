@@ -55,6 +55,7 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: v
 .m-sol { color: var(--amber); } .m-astra { color: var(--violet); } .m-kimi { color: var(--blue); } .m-other { color: var(--muted); }
 .m-claude { color: var(--claude); } .chip.src-claude { background: var(--claude); border-color: var(--claude); color: var(--panel); font-weight: 600; }
 .chip.src-gpt { background: var(--gpt); border-color: var(--gpt); color: var(--panel); font-weight: 600; }
+.chip.src-nous { background: var(--violet); border-color: var(--violet); color: var(--panel); font-weight: 600; }
 .chip.src-kimi { background: var(--kimi); border-color: var(--kimi); color: var(--panel); font-weight: 600; }
 .chip.kind { color: var(--muted); border-style: dashed; }
 .chip.full { color: var(--red); } .chip.read { color: var(--teal); }
@@ -99,6 +100,31 @@ details pre, .result { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6
 .row > * { min-width: 0; overflow-wrap: anywhere; }
 .row .sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .rowx { padding: 0 14px 12px 46px; border-bottom: 1px solid var(--line); }
+.board { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+  margin-bottom: 22px; overflow: hidden; }
+.brow { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 9px 14px;
+  border-bottom: 1px solid var(--line); border-left: 3px solid transparent; }
+.brow:last-child { border-bottom: 0; }
+.brow.warn { border-left-color: var(--amber); } .brow.bad { border-left-color: var(--red); }
+.brow.ask { border-left-color: var(--violet); background: color-mix(in srgb, var(--violet) 7%, transparent); }
+.b-ask { flex: 1 1 100%; overflow-wrap: anywhere; }
+.b-ask .q { font-weight: 600; } .b-ask .how { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.badge.violet { background: color-mix(in srgb, var(--violet) 18%, transparent); color: var(--violet); }
+.card.ask { border-color: var(--violet); } .note.ask { border-left-color: var(--violet); }
+form.send { display: flex; gap: 6px; margin-top: 6px; }
+form.send input { flex: 1; min-width: 0; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel);
+  color: var(--ink); font: inherit; }
+form.send button { padding: 6px 12px; border-radius: 8px; border: 0; background: var(--violet); color: #fff; font: inherit;
+  font-weight: 600; cursor: pointer; }
+form.send.tell button { background: var(--blue); }
+.brow > * { min-width: 0; }
+.b-name { flex: 1 1 230px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.b-name b { overflow-wrap: anywhere; }
+.b-phase { flex: 2 1 260px; overflow-wrap: anywhere; }
+.b-phase .ph { font-weight: 650; }
+.b-times { flex: none; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--muted);
+  font-variant-numeric: tabular-nums; }
+.b-times b { color: var(--ink); font-weight: 600; }
 .empty { color: var(--muted); padding: 18px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; }
 @media (min-width: 1600px) {
   .done { columns: 2; column-gap: 0; column-rule: 1px solid var(--line); }
@@ -116,10 +142,16 @@ details pre, .result { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6
   <h1>Agent Relay Feed</h1>
   <span id="pc"></span>
   <span class="spacer"></span>
+  <a class="link" href="/evidence" style="color:var(--blue);text-decoration:none" title="Finished jobs that need a look, with the evidence they cite">Review</a>
+  <a class="link" href="/mission" style="color:var(--blue);text-decoration:none" title="Timeline view of every agent">Mission control ↗</a>
   <span class="muted" id="upd">connecting…</span>
   <button class="link" id="theme" title="Switch light / dark">◐</button>
 </header>
 <main>
+  <div id="boardwrap" hidden>
+    <h2>At a glance</h2>
+    <div id="board" class="board"></div>
+  </div>
   <h2>Working now</h2>
   <div id="running" class="grid"></div>
   <h2>Finished <span class="muted" id="hrs"></span></h2>
@@ -129,9 +161,9 @@ details pre, .result { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6
 const ICON = { read:'📄', search:'🔍', list:'📁', git:'⎇', test:'🧪', build:'🔨', game:'🎮', proc:'⚙️', write:'✏️',
   copy:'📋', delete:'🗑️', hash:'#️⃣', run:'▶️', code:'🐍', misc:'·', message:'💬', files:'📝', error:'⚠️',
   started:'🚀', session:'🔗', 'turn completed':'✅', other:'·', agent:'🤖', mcp:'🔌', todo:'☑️', web:'🌐' };
-const STATE = { done:'✅', failed:'❌', timeout:'⏱️', cancelled:'⏹️', lost:'❓' };
+const STATE = { done:'✅', failed:'❌', timeout:'⏱️', cancelled:'⏹️', lost:'❓', queued:'⏳' };
 const open = new Set(JSON.parse(safeGet('feed.open') || '[]'));
-let last = null;
+let last = null, canAnswer = false;
 
 function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function safeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
@@ -159,9 +191,12 @@ function model(j, compact) {
   const cls = p.includes('sol') ? 'm-sol' : p.includes('astra') ? 'm-astra' : p.includes('kimi') ? 'm-kimi' : 'm-other';
   const name = (j.label || p).replace('GPT-6.1-', '').replace('GPT-6-', '').replace(' Preview', '').replace(/^Kimi /, '');
   // Relay job: provider badge (from the backend), then the model and effort.
-  const src = j.backend === 'kimi' ? ['src-kimi', 'Kimi', 'Moonshot Kimi via the Kimi Code CLI']
-    : j.backend === 'codex' ? ['src-gpt', 'GPT', 'OpenAI model via the Codex CLI'] : null;
-  return (src ? `<span class="chip ${src[0]}" title="${src[2]}">${src[1]}</span> ` : '') + `<span class="chip ${cls}">${esc(name)}</span>`;
+  const src = j.provider === 'nous' ? ['src-nous', 'Nous', 'Nous Portal model via the Kimi Code CLI, billed to Nous credits']
+    : j.backend === 'kimi' ? ['src-kimi', 'Kimi', 'Moonshot Kimi via the Kimi Code CLI']
+    : j.backend === 'codex' ? ['src-gpt', 'GPT', 'OpenAI model via the Codex CLI']
+    : j.backend === 'claude-api' ? ['src-claude', 'Claude API', 'Anthropic API credits via Claude Code'] : null;
+  const cost = (j.backend === 'claude-api' || j.provider === 'nous') ? `<span class="chip" title="Reported API spend; unknown until a cost event">${typeof j.total_cost_usd === 'number' ? '$' + j.total_cost_usd.toFixed(4) : 'cost unknown'}</span>` : '';
+  return (src ? `<span class="chip ${src[0]}" title="${src[2]}">${src[1]}</span> ` : '') + `<span class="chip ${cls}">${esc(name)}</span>` + cost;
 }
 function tok(n) { return n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n || 0); }
 function nested(j) {
@@ -180,13 +215,34 @@ function evRow(e) {
   const cls = e.kind === 'error' ? 'err' : '';
   return `<li class="${cls}"><span class="t mono">${e.t}</span><span class="i">${ICON[e.kind] || '·'}</span><span class="d"><span class="x">${esc(e.kind === 'files' ? 'Changed ' + e.text : e.text)}</span></span><span></span></li>`;
 }
+function boardRow(j, now) {
+  const flags = [];
+  if (j.stalled) flags.push(`<span class="badge amber">quiet ${dur(j.idle)}</span>`);
+  if (j.loop) flags.push(`<span class="badge red">possible loop</span>`);
+  if (j.queued) flags.push(`<span class="badge grey" title="sent with tell; read at the next stage change">${j.queued} queued</span>`);
+  if (j.question) flags.unshift(`<span class="badge violet">needs an answer · ${dur(now - j.question_since)}</span>`);
+  const ask = j.question ? `<span class="b-ask"><span class="q">${esc(j.question)}</span>` +
+    (canAnswer ? `<form class="send" data-send="answer" data-job="${esc(j.id)}"><input placeholder="Type your answer…" autocomplete="off"><button>Answer</button></form>`
+      : `<span class="how mono">delegate.py answer ${esc(j.id)} "…"</span>`) + '</span>' : '';
+  const c = j.current;
+  // the stage the agent named itself; until it names one, fall back to its latest step
+  const phase = j.phase
+    ? `<span class="ph">${esc(j.phase)}</span> <span class="muted">· ${dur(now - j.phase_since)}${j.phases > 1 ? ` · stage ${j.phases}` : ''}</span>`
+    : `<span class="muted">no stage named yet${c ? ` · ${esc(c.verb)} ${esc(c.detail)}` : ''}</span>`;
+  return `<div class="brow ${j.question ? 'ask' : j.loop ? 'bad' : j.stalled ? 'warn' : ''}">
+    <span class="b-name"><span class="live"></span><b>${esc(j.name)}</b>${model(j, true)}</span>
+    <span class="b-phase">${phase}</span>
+    <span class="b-times"><span>running <b>${dur(j.elapsed)}</b></span><span>active <b>${dur(j.idle || 0)}</b> ago</span>${flags.join('')}</span>${ask}
+  </div>`;
+}
 function card(j, now) {
   const warn = [];
   if (j.stalled) warn.push(`<span class="badge amber">quiet ${dur(j.idle)}</span>`);
   if (j.loop) warn.push(`<span class="badge red">possible loop</span>`);
   if (j.retries) warn.push(`<span class="badge grey">${j.retries} reconnects</span>`);
   if (j.counts && j.counts.errors) warn.push(`<span class="badge red">${j.counts.errors} errors</span>`);
-  const cls = j.loop ? 'bad' : j.stalled ? 'warn' : '';
+  if (j.queued) warn.push(`<span class="badge grey">${j.queued} queued</span>`);
+  const cls = j.question ? 'ask' : j.loop ? 'bad' : j.stalled ? 'warn' : '';
   const mode = j.mode === 'full' ? '<span class="chip full">full access</span>' : j.mode === 'read' ? '<span class="chip read">read-only</span>' : '';
   const c = j.current;
   const nowLine = c ? `<div class="now"><span class="lbl">Now</span><span>${ICON[c.icon] || '·'}</span>` +
@@ -200,22 +256,30 @@ function card(j, now) {
     <div class="top"><span class="live"></span><span class="name">${esc(j.name)}</span>${model(j)}${mode}</div>
     <div class="metaline"><span>running ${dur(j.elapsed)}</span><span>last activity ${dur(j.idle || 0)} ago</span>${nested(j)}${warn.join('')}</div>
     ${j.now_msg ? `<div class="note ${isOpen ? 'open' : ''}" data-toggle="${esc(j.id)}"><div class="when">latest note · ${j.now_msg_t} · ${ago(j.now_msg_t, now)}</div><div class="txt">${md(j.now_msg)}</div></div>` : ''}
+    ${j.question ? `<div class="note ask open"><div class="when">needs an answer · waiting ${dur(now - j.question_since)}</div><div class="txt">${esc(j.question)}</div></div>` : ''}
+    ${j.phase ? `<div class="now"><span class="lbl">Stage</span><span class="what"><b>${esc(j.phase)}</b></span><span class="muted" style="flex:none;font-size:12px">for ${dur(now - j.phase_since)}</span></div>` : ''}
     ${nowLine}
     <div class="stats"><span><b>${k.commands || 0}</b> steps</span><span class="${k.failed ? 'fail' : ''}"><b>${k.failed || 0}</b> ${j.source === 'claude' ? 'failed steps' : 'non-zero exits'}</span><span><b>${k.messages || 0}</b> notes</span><span><b>${k.files || 0}</b> file edits</span>${j.tokens ? `<span title="output tokens so far · size of the latest prompt"><b>${tok(j.tokens.output)}</b> out · <b>${tok(j.tokens.context)}</b> context</span>` : ''}</div>
     <ul class="tl">${shown.map(evRow).join('')}</ul>
     <div class="metaline"><button class="link" data-toggle="${esc(j.id)}">${isOpen ? 'show less' : `show all ${evs.length} steps`}</button>
       <span class="mono" title="${esc(j.cwd)}">${esc((j.cwd || '').split(/[\\/]/).slice(-2).join('/'))}</span><span class="mono">${esc(j.id)}</span></div>
+    ${canAnswer && j.source !== 'claude' ? `<form class="send tell" data-send="tell" data-job="${esc(j.id)}"><input placeholder="Message this agent (read at its next stage)…" autocomplete="off"><button>Send</button></form>` : ''}
     ${j.progress && j.progress.length ? `<details><summary>progress file (last ${j.progress.length} lines)</summary><pre class="mono">${esc(j.progress.join('\n'))}</pre></details>` : ''}
   </section>`;
 }
 function finishedRow(j) {
   const end = j.finished ? new Date(j.finished * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
-  const first = (j.result || (j.errors || [])[0] || '').split('\n').find(l => l.trim()) || '';
+  const first = j.state === 'queued' ? `queued behind ${(j.after || []).join(', ')}`
+    : j.resumed_by ? `connection error; resumed automatically as ${j.resumed_by}`
+    : j.died ? `DIED of a connection error, not finished: resume it once from its session (${j.id})`
+    : (j.result || (j.errors || [])[0] || '').split('\n').find(l => l.trim()) || '';
   const isOpen = open.has(j.id);
+  const verdict = j.verdict ? `<span class="badge ${j.reviewed ? 'grey' : j.flags || j.verdict === 'fail' ? 'red' : j.verdict === 'pass' ? 'grey' : 'amber'}" ` +
+    `title="the worker's own verdict; flagged = claims that did not check out">${esc(j.verdict)}${j.flags ? ` · ${j.flags} flagged` : ''}${j.reviewed ? ' · reviewed' : ''}</span> ` : '';
   return `<div class="finished-job"><div class="row" data-toggle="${esc(j.id)}"><span>${STATE[j.state] || '·'}</span><b>${esc(j.name)}</b>` +
     `<span class="c-model">${model(j, true)}</span><span class="muted">${dur(j.elapsed)}</span><span class="muted c-end">${end}</span>` +
-    `<span class="sum">${esc(first.replace(/[#*`]/g, ''))}</span></div>` +
-    (isOpen ? `<div class="rowx"><div class="result">${md(j.result || (j.errors || []).join('\n') || '(no final message)')}</div>
+    `<span class="sum">${verdict}${esc(first.replace(/[#*`]/g, ''))}</span></div>` +
+    (isOpen ? `<div class="rowx"><div class="result">${md((j.died ? (j.errors || []).join('\n') : j.result) || (j.errors || []).join('\n') || '(no final message)')}</div>
       <div class="metaline" style="margin-top:6px"><span class="mono">${esc(j.id)}</span><span class="mono">${esc(j.cwd)}</span>
       <span>${(j.counts || {}).commands || 0} steps · state ${esc(j.state)}</span></div></div>` : '') + '</div>';
 }
@@ -228,11 +292,26 @@ function pc(processes, enabled) {
     return `<span class="pill ${esc(who)}" title="${esc(p.path)}"><span class="dot"></span>${esc(p.name)}: ${esc(label)}</span>`;
   }).join(' ');
 }
+function spend(s, what = 'API') {
+  if (!s || !(s.month || s.budget)) return '';
+  const over = s.budget && s.month >= s.budget * 0.8;
+  return ` <span class="pill ${over ? 'unknown' : 'owner'}" title="${what === 'API' ? 'Claude API' : 'Nous Portal'} spend recorded this month"><span class="dot"></span>${what} $${s.month.toFixed(2)}${s.budget ? ' / $' + s.budget : ''}</span>`;
+}
+function slots(list, now) {
+  return list.map(r => {
+    const who = r.held.map(h => `slot ${h.slot}: ${h.holder} (${dur(now - (h.since || now))})`).join('\n') || 'free';
+    const cls = r.held.length >= r.slots ? 'agent' : 'free';
+    return `<span class="pill ${cls}" title="${esc(who)}"><span class="dot"></span>${esc(r.name)} ${r.held.length}/${r.slots}</span>`;
+  }).join(' ');
+}
 function render(d) {
-  last = d;
+  last = d; canAnswer = !!d.can_answer;
+  announce(d.jobs, 'Agent Relay Feed');
   const running = d.jobs.filter(j => j.state === 'running' || j.state === 'starting');
   const done = d.jobs.filter(j => !(j.state === 'running' || j.state === 'starting'));
-  document.getElementById('pc').innerHTML = pc(d.processes || [], d.process_panel);
+  document.getElementById('pc').innerHTML = pc(d.processes || [], d.process_panel) + ' ' + slots(d.slots || [], d.now) + spend(d.api_spend) + spend(d.nous_spend, 'Nous');
+  document.getElementById('boardwrap').hidden = !running.length;
+  document.getElementById('board').innerHTML = running.map(j => boardRow(j, d.now)).join('');
   document.getElementById('running').innerHTML = running.length ? running.map(j => card(j, d.now)).join('')
     : '<div class="empty">No agent is working right now.</div>';
   document.getElementById('finished').innerHTML = done.length ? done.map(finishedRow).join('')
@@ -251,12 +330,57 @@ document.getElementById('theme').onclick = () => {
   r.dataset.theme = cur === 'dark' ? 'light' : 'dark'; safeSet('feed.theme', r.dataset.theme);
 };
 { const t = safeGet('feed.theme'); if (t) document.documentElement.dataset.theme = t; }
+
+// ---- answering from the page (needs feed_pin in the config) -------------------------------
+async function sendTo(kind, job, text) {
+  let pin = safeGet('feed.pin') || prompt('PIN for answering from this page');
+  if (!pin) return false;
+  let r, d = {};
+  try {
+    r = await fetch('/api/' + kind, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({pin, job, text})});
+    d = await r.json();
+  } catch (e) { alert('Could not reach the feed server.'); return false; }
+  if (r.status === 401) { safeSet('feed.pin', ''); alert(d.error || 'Wrong PIN.'); return false; }
+  if (!r.ok) { alert(d.error || 'That did not work.'); return false; }
+  safeSet('feed.pin', pin);
+  return true;
+}
+document.addEventListener('submit', async ev => {
+  const f = ev.target.closest('form[data-send]'); if (!f) return;
+  ev.preventDefault();
+  const box = f.querySelector('input'), text = box.value.trim();
+  if (!text) return;
+  f.querySelector('button').disabled = true;
+  if (await sendTo(f.dataset.send, f.dataset.job, text)) { box.value = ''; box.blur(); }
+  f.querySelector('button').disabled = false;
+});
+function typing() { const a = document.activeElement; return !!(a && a.closest && a.closest('form[data-send]')) ||
+  [...document.querySelectorAll('form[data-send] input')].some(i => i.value); }
+
+// ---- a waiting question should be hard to miss ---------------------------------------------
+const knownQuestions = new Set(); let firstRender = true;
+function announce(jobs, baseTitle) {
+  const asking = jobs.filter(j => j.question && (j.state === 'running' || j.state === 'starting'));
+  document.title = asking.length ? `(${asking.length}) needs an answer · ${baseTitle}` : baseTitle;
+  let fresh = false;
+  for (const j of asking) { const k = j.id + '|' + j.question_since; if (!knownQuestions.has(k)) { knownQuestions.add(k); fresh = true; } }
+  if (fresh && !firstRender) {
+    try {        // a short two-note chime; browsers may refuse sound until the page has been clicked
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      [660, 880].forEach((hz, i) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = hz;
+        g.gain.setValueAtTime(0.0001, ctx.currentTime + i * 0.18); g.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + i * 0.18 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i * 0.18 + 0.3); o.connect(g).connect(ctx.destination);
+        o.start(ctx.currentTime + i * 0.18); o.stop(ctx.currentTime + i * 0.18 + 0.32); });
+    } catch (e) {}
+  }
+  firstRender = false;
+}
 let fails = 0;
 async function tick() {
   try {
     const r = await fetch('/api/jobs', {cache: 'no-store'});
     const d = await r.json();
-    if (!window.getSelection || String(window.getSelection()).length === 0) render(d);
+    if ((!window.getSelection || String(window.getSelection()).length === 0) && !typing()) render(d);
     fails = 0;
     document.getElementById('upd').textContent = 'live · ' + new Date().toLocaleTimeString();
   } catch (e) {

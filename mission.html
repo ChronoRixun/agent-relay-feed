@@ -1,0 +1,472 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright 2026 ChronoRixun -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mission Control · Agent Relay Feed</title>
+<style>
+:root {
+  --bg: #060a12; --bg2: #0a101c; --panel: rgba(13, 20, 34, .82); --line: rgba(120, 190, 255, .16);
+  --line2: rgba(120, 190, 255, .32); --ink: #e8eef8; --muted: #7f8da6; --dim: #4c5870;
+  --chrome: #63d6ff; --claude: #f0906c; --gpt: #3fd3a4; --kimi: #6f9dff; --api: #f2b84b;
+  --amber: #f2b84b; --red: #ff6b6b; --violet: #b592ff; --green: #49e08f;
+  --sync: 0s;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); min-height: 100vh; overflow-x: hidden;
+  font: 14px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif;
+  background-image:
+    radial-gradient(1200px 500px at 70% -10%, rgba(60, 130, 255, .13), transparent 60%),
+    radial-gradient(900px 420px at 0% 110%, rgba(180, 110, 255, .08), transparent 60%),
+    linear-gradient(rgba(120, 190, 255, .045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120, 190, 255, .045) 1px, transparent 1px);
+  background-size: auto, auto, 44px 44px, 44px 44px; background-attachment: fixed; }
+.mono, .num { font-family: "Cascadia Mono", Consolas, ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+a { color: var(--chrome); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.top { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px;
+  padding: 12px 18px; background: linear-gradient(rgba(6, 10, 18, .96), rgba(6, 10, 18, .84));
+  border-bottom: 1px solid var(--line2); backdrop-filter: blur(6px); }
+.top::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--chrome), transparent); opacity: .7;
+  animation: sweep 6s linear infinite; animation-delay: var(--sync); background-size: 40% 100%; background-repeat: no-repeat; }
+@keyframes sweep { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .22em; font-size: 13px; }
+.brand svg { width: 22px; height: 22px; }
+.stats { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.stat { display: flex; align-items: baseline; gap: 7px; }
+.stat b { font-size: 22px; font-weight: 650; line-height: 1; }
+.stat span { font-size: 10.5px; letter-spacing: .16em; color: var(--muted); text-transform: uppercase; }
+.stat.ask b { color: var(--violet); } .stat.quiet b { color: var(--amber); } .stat.flag b { color: var(--red); }
+.stat.zero b { color: var(--dim); }
+.slots { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.slot { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.pip { width: 14px; height: 6px; border-radius: 2px; background: rgba(120, 190, 255, .16); }
+.pip.on { background: var(--amber); box-shadow: 0 0 8px rgba(242, 184, 75, .7); }
+.grow { flex: 1; }
+.right { display: flex; align-items: center; gap: 16px; font-size: 12.5px; color: var(--muted); }
+#clock { color: var(--ink); font-size: 15px; }
+
+.alert { margin: 14px 18px 0; padding: 11px 14px; border: 1px solid var(--violet); border-radius: 10px;
+  background: linear-gradient(90deg, rgba(181, 146, 255, .2), rgba(181, 146, 255, .06));
+  display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline;
+  animation: glow 2s ease-in-out infinite; animation-delay: var(--sync); }
+@keyframes glow { 50% { box-shadow: 0 0 22px rgba(181, 146, 255, .35); } }
+.alert .who { font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--violet); font-weight: 700; }
+.alert .q { font-weight: 600; flex: 1 1 320px; overflow-wrap: anywhere; }
+.alert .how { font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+.alert form { flex: 1 1 100%; display: flex; gap: 8px; margin-top: 4px; }
+.alert input { flex: 1; min-width: 0; padding: 8px 11px; border-radius: 8px; border: 1px solid var(--violet);
+  background: rgba(6, 10, 18, .7); color: var(--ink); font: inherit; }
+.alert button { padding: 8px 16px; border-radius: 8px; border: 0; background: var(--violet); color: #0b0718; font: inherit;
+  font-weight: 700; letter-spacing: .06em; cursor: pointer; }
+
+main { padding: 16px 18px 28px; display: grid; gap: 16px; }
+h2 { margin: 0 0 10px; font-size: 10.5px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); font-weight: 600;
+  display: flex; gap: 10px; align-items: baseline; }
+h2 small { letter-spacing: .06em; text-transform: none; color: var(--dim); font-size: 11.5px; }
+
+.tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+.tile { --c: var(--chrome); position: relative; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 13px 14px 12px; display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 4px 12px;
+  overflow: hidden; }
+.tile::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--c); box-shadow: 0 0 14px var(--c); }
+.tile.s-ask { border-color: var(--violet); } .tile.s-ask::before { background: var(--violet); box-shadow: 0 0 14px var(--violet); }
+.tile.s-quiet { border-color: rgba(242, 184, 75, .55); } .tile.s-loop { border-color: var(--red); }
+.ring { grid-row: 1 / span 3; align-self: center; width: 62px; height: 62px; }
+.ring .track { fill: none; stroke: rgba(120, 190, 255, .13); stroke-width: 5; }
+.ring .arc { fill: none; stroke: var(--c); stroke-width: 5; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%;
+  filter: drop-shadow(0 0 4px var(--c)); transition: stroke-dashoffset 1s linear; }
+.ring text { fill: var(--ink); font-size: 12px; text-anchor: middle; dominant-baseline: central; }
+.t-head { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 11px; }
+.prov { color: #06101c; background: var(--c); border-radius: 4px; padding: 0 6px; font-weight: 700; letter-spacing: .06em; flex: none; }
+.model { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.state { margin-left: auto; flex: none; font-size: 10px; letter-spacing: .16em; font-weight: 700; color: var(--green); display: flex; align-items: center; gap: 5px; }
+.state i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor;
+  animation: blink 2s ease-in-out infinite; animation-delay: var(--sync); }
+@keyframes blink { 50% { opacity: .25; } }
+.s-ask .state { color: var(--violet); } .s-quiet .state { color: var(--amber); } .s-loop .state { color: var(--red); }
+.t-name { font-weight: 650; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t-stage { font-size: 13px; color: var(--ink); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.t-stage.none { color: var(--dim); font-style: italic; }
+.t-stage small { color: var(--muted); }
+.t-foot { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; padding-top: 7px;
+  border-top: 1px dashed var(--line); font-size: 11.5px; color: var(--muted); min-width: 0; }
+.t-foot .nowstep { flex: 1 1 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); opacity: .85; }
+.t-foot b { color: var(--ink); font-weight: 600; }
+form.msg { flex: 1 1 100%; display: flex; gap: 6px; margin-top: 4px; }
+form.msg input { flex: 1; min-width: 0; padding: 5px 9px; border-radius: 7px; border: 1px solid var(--line2); background: rgba(6, 10, 18, .6);
+  color: var(--ink); font: inherit; font-size: 12.5px; }
+form.msg button { padding: 5px 11px; border-radius: 7px; border: 1px solid var(--line2); background: transparent; color: var(--chrome);
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.tag { border: 1px solid var(--amber); color: var(--amber); border-radius: 4px; padding: 0 5px; font-size: 10.5px; letter-spacing: .06em; }
+
+.deck { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; min-width: 0; }
+#tl svg { display: block; width: 100%; }
+#tl text { font-family: "Segoe UI", system-ui, sans-serif; }
+.tick { stroke: rgba(120, 190, 255, .1); } .tickl { fill: var(--dim); font-size: 10.5px; }
+.lname { fill: var(--ink); font-size: 12px; font-weight: 600; } .lmeta { fill: var(--muted); font-size: 11px; }
+.seglabel { fill: #06101c; font-size: 11px; font-weight: 600; }
+.nostage { fill: var(--dim); font-size: 10.5px; font-style: italic; }
+.nowline { stroke: var(--chrome); stroke-width: 1.5; filter: drop-shadow(0 0 5px var(--chrome)); }
+.nowl { fill: var(--chrome); font-size: 10px; letter-spacing: .14em; font-weight: 700; }
+.head { animation: pulse 2s ease-out infinite; animation-delay: var(--sync); transform-box: fill-box; transform-origin: center; }
+@keyframes pulse { 0% { transform: scale(.6); opacity: .9; } 100% { transform: scale(2.6); opacity: 0; } }
+.qbar { animation: blink 1.6s ease-in-out infinite; animation-delay: var(--sync); }
+.sect { fill: var(--dim); font-size: 10px; letter-spacing: .2em; }
+
+.log ol { list-style: none; margin: 0; padding: 0; max-height: 560px; overflow: auto; }
+.log li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 2px 8px; padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 12.5px; }
+.log li:last-child { border-bottom: 0; }
+.log .t { color: var(--dim); font-size: 11px; padding-top: 1px; }
+.log .who { font-size: 11px; color: var(--c, var(--muted)); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log .what { grid-column: 2; overflow-wrap: anywhere; color: var(--ink); opacity: .92; }
+.log .k-ask .what { color: var(--violet); } .log .k-bad .what { color: var(--red); } .log .k-good .what { color: var(--green); }
+.log .k-say .what { font-style: italic; opacity: .75; } .log .k-launch .what { color: var(--chrome); }
+
+.empty { text-align: center; padding: 46px 16px; color: var(--muted); border: 1px dashed var(--line2); border-radius: 14px; }
+.empty svg { width: 120px; height: 120px; display: block; margin: 0 auto 12px; }
+.empty .scan { transform-origin: 60px 60px; animation: spin 4s linear infinite; animation-delay: var(--sync); }
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty b { display: block; color: var(--ink); letter-spacing: .2em; font-size: 12px; margin-bottom: 4px; }
+
+@media (max-width: 980px) { .deck { grid-template-columns: minmax(0, 1fr); } .log ol { max-height: 360px; } }
+@media (max-width: 560px) { .top { position: static; padding: 10px 14px; gap: 8px 14px; } main { padding: 14px; } .alert { margin: 12px 14px 0; }
+  .stat b { font-size: 19px; } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="color:var(--chrome)"><circle cx="12" cy="12" r="9.2"/><circle cx="12" cy="12" r="4.4" opacity=".6"/><path d="M12 2.8v4M12 17.2v4M2.8 12h4M17.2 12h4"/></svg>
+    MISSION CONTROL
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="slots" id="slots"></div>
+  <span class="grow"></span>
+  <div class="right"><span id="upd">connecting…</span><span id="clock" class="mono"></span><a href="/evidence">Review</a><a href="/">Feed ↗</a></div>
+</header>
+<div id="alerts"></div>
+<main>
+  <section>
+    <h2>In flight</h2>
+    <div id="tiles" class="tiles"></div>
+  </section>
+  <div class="deck">
+    <section class="panel">
+      <h2>Flight tracks <small id="span"></small></h2>
+      <div id="tl"></div>
+    </section>
+    <aside class="panel log">
+      <h2>Comms</h2>
+      <ol id="log"></ol>
+    </aside>
+  </div>
+</main>
+<script>
+const DEMO = new URLSearchParams(location.search).has('demo');
+let last = null;
+function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function safeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function dur(s) {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return h ? `${h}h ${String(m).padStart(2, '0')}m` : m ? `${m}m ${String(x).padStart(2, '0')}s` : `${x}s`;
+}
+function short(s) {          // for the ring: at most five characters
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h ? `${h}h${String(m).padStart(2, '0')}` : m ? `${m}m` : `${s}s`;
+}
+function hm(t) { return new Date(t * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', hour12: false}); }
+function evTime(hms, now) {  // event stamps are HH:MM:SS local; the most recent such moment at or before now
+  if (!hms) return null;
+  const d = new Date(now * 1000), [h, m, s] = hms.split(':').map(Number);
+  const t = new Date(d); t.setHours(h, m, s || 0, 0);
+  let x = t / 1000; if (x > now + 60) x -= 86400;
+  return x;
+}
+function cut(s, n) { s = String(s ?? ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+function running(j) { return j.state === 'running' || j.state === 'starting'; }
+function prov(j) {
+  if (j.source === 'claude') return {tag: 'CLAUDE', c: 'var(--claude)'};
+  if (j.backend === 'codex') return {tag: 'GPT', c: 'var(--gpt)'};
+  if (j.backend === 'kimi' && j.provider !== 'nous') return {tag: 'KIMI', c: 'var(--kimi)'};
+  if (j.backend === 'claude-api') return {tag: 'API', c: 'var(--api)'};
+  if (j.provider === 'nous') return {tag: 'NOUS', c: 'var(--violet)'};
+  if (j.backend === 'shell') return {tag: 'CMD', c: 'var(--chrome)'};
+  return {tag: 'AGENT', c: 'var(--chrome)'};
+}
+function modelName(j) { return String(j.label || j.profile || '').replace('GPT-6.1-', '').replace('GPT-6-', '').replace(/^Kimi /, ''); }
+function status(j) {
+  if (!running(j)) return j.state;
+  return j.question ? 'ask' : j.loop ? 'loop' : j.stalled ? 'quiet' : 'live';
+}
+const ORDER = {ask: 0, loop: 1, quiet: 2, live: 3};
+const WORD = {ask: 'ASKING', loop: 'LOOPING?', quiet: 'QUIET', live: 'LIVE'};
+
+function tile(j, d) {
+  const p = prov(j), st = status(j), now = d.now;
+  // the ring drains as the agent goes quiet: full = just active, empty = at the stall threshold
+  const left = Math.max(0, 1 - (j.idle || 0) / (d.stall || 480)), R = 26, C = 2 * Math.PI * R;
+  const held = (d.slots || []).filter(r => r.held.some(h => h.holder === j.id)).map(r => `<span class="tag">${esc(r.name)}</span>`).join(' ');
+  const c = j.current;
+  const stage = j.question ? `<div class="t-stage" style="color:var(--violet)">${esc(j.question)}<small> · waiting ${dur(now - j.question_since)}</small></div>`
+    : j.phase ? `<div class="t-stage">${esc(j.phase)}<small> · ${dur(now - j.phase_since)}${j.phases > 1 ? ` · stage ${j.phases}` : ''}</small></div>`
+    : `<div class="t-stage none">no stage named yet</div>`;
+  const k = j.counts || {};
+  return `<article class="tile s-${st}" style="--c:${p.c}">
+    <svg class="ring" viewBox="0 0 62 62"><circle class="track" cx="31" cy="31" r="${R}"/>
+      <circle class="arc" cx="31" cy="31" r="${R}" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - left)).toFixed(1)}"${st === 'quiet' ? ' style="stroke:var(--amber)"' : st === 'ask' ? ' style="stroke:var(--violet)"' : ''}/>
+      <text x="31" y="31" class="mono">${short(j.elapsed)}</text><title>running ${dur(j.elapsed)}; last activity ${dur(j.idle || 0)} ago</title></svg>
+    <div class="t-head"><span class="prov">${p.tag}</span><span class="model">${esc(modelName(j))}</span><span class="state"><i></i>${WORD[st]}</span></div>
+    <div class="t-name" title="${esc(j.name)}">${esc(j.name)}</div>
+    ${stage}
+    <div class="t-foot">${c ? `<span class="nowstep" title="${esc(c.raw)}">▸ ${esc(c.verb)} ${esc(c.detail)}</span>` : ''}
+      <span><b>${k.commands || 0}</b> steps</span><span>active <b>${dur(j.idle || 0)}</b> ago</span>${j.queued ? `<span><b>${j.queued}</b> queued</span>` : ''}${held}
+      ${d.can_answer && j.source !== 'claude' ? `<form class="msg" data-send="${j.question ? 'answer' : 'tell'}" data-job="${esc(j.id)}"><input placeholder="${j.question ? 'Type your answer…' : 'Message this agent…'}" autocomplete="off"><button>${j.question ? 'Answer' : 'Send'}</button></form>` : ''}</div>
+  </article>`;
+}
+
+function timeline(d, lanes, width) {
+  const now = d.now, PADL = 8, PADR = 56, TOP = 24, LANE = 50;
+  const first = Math.min(now - 20 * 60, ...lanes.map(j => j.started));
+  const span = Math.min(12 * 3600, (now - first) * 1.04), t0 = now - span;
+  const x = t => PADL + Math.max(0, Math.min(1, (t - t0) / span)) * (width - PADL - PADR);
+  const steps = [300, 600, 900, 1800, 3600, 7200], step = steps.find(s => span / s <= Math.max(3, width / 110)) || 14400;
+  let out = '', h = TOP + lanes.length * LANE + 8;
+  if (lanes.some(j => !running(j)) && lanes.some(running)) h += 18;
+  for (let t = Math.ceil(t0 / step) * step; t < now; t += step)
+    out += `<line class="tick" x1="${x(t)}" x2="${x(t)}" y1="${TOP - 6}" y2="${h}"/><text class="tickl mono" x="${x(t) + 3}" y="12">${hm(t)}</text>`;
+  let y = TOP, landed = false;
+  lanes.forEach((j, i) => {
+    const p = prov(j), live = running(j), a = Math.max(j.started, t0), b = live ? now : Math.min(now, j.finished || now);
+    if (!live && !landed && lanes.some(running)) { out += `<text class="sect" x="${PADL}" y="${y + 9}">LANDED</text>`; y += 18; }
+    if (!live) landed = true;
+    const ty = y + 20, th = 20, op = live ? 1 : .72;
+    out += `<g opacity="${op}"><text class="lname" x="${PADL}" y="${y + 12}">${esc(cut(j.name, Math.max(14, Math.floor(width / 11))))}</text>`;
+    out += `<rect x="${x(a)}" y="${ty}" width="${Math.max(2, x(b) - x(a))}" height="${th}" rx="5" fill="${p.c}" fill-opacity=".12" stroke="${p.c}" stroke-opacity=".4"/>`;
+    const phases = (j.stages || []).filter(s => s.kind === 'phase' && s.t <= b);
+    const firstT = phases.length ? Math.max(phases[0].t, a) : b;
+    if (x(firstT) - x(a) > 70) out += `<text class="nostage" x="${x(a) + 7}" y="${ty + 14}">no stage named</text>`;
+    phases.forEach((s, n) => {
+      const s0 = Math.max(s.t, a), s1 = n + 1 < phases.length ? phases[n + 1].t : b, w = x(s1) - x(s0);
+      if (s1 <= t0 || w < 1) return;
+      out += `<svg x="${x(s0)}" y="${ty}" width="${Math.max(1, w - 1)}" height="${th}"><rect width="100%" height="100%" rx="4" fill="${p.c}" fill-opacity="${n % 2 ? .62 : .88}"/>` +
+        (w > 34 ? `<text class="seglabel" x="6" y="14">${esc(s.text)}</text>` : '') +
+        `<title>${esc(s.text)} · ${hm(s.t)} · ${dur(s1 - s.t)}</title></svg>`;
+    });
+    // questions: a violet bar under the track from the ask to its answer (or to now)
+    (j.stages || []).forEach((s, n) => {
+      if (s.kind !== 'asked') return;
+      const ans = (j.stages || []).slice(n + 1).find(e => e.kind === 'answered'), open = !ans && live;
+      const q0 = Math.max(s.t, a), q1 = ans ? ans.t : b;
+      if (q1 <= t0) return;
+      out += `<rect class="${open ? 'qbar' : ''}" x="${x(q0)}" y="${ty + th + 3}" width="${Math.max(3, x(q1) - x(q0))}" height="4" rx="2" fill="var(--violet)"/>` +
+        `<path d="M${x(q0)} ${ty + th - 1}l5 6-5 6-5-6z" fill="var(--violet)"><title>asked ${hm(s.t)}: ${esc(s.text)}${ans ? ` — answered after ${dur(ans.t - s.t)}: ${esc(ans.text)}` : ''}</title></path>`;
+    });
+    // recent steps as sparks above the track
+    (j.events || []).forEach(e => {
+      if (e.kind !== 'command') return;
+      const t = evTime(e.t, now);
+      if (t === null || t < a || t > b + 2) return;
+      out += `<line x1="${x(t)}" x2="${x(t)}" y1="${ty - 5}" y2="${ty - 1}" stroke="${e.rc ? 'var(--red)' : p.c}" stroke-opacity="${e.rc ? 1 : .75}" stroke-width="1.4"/>`;
+    });
+    const st = status(j), hc = st === 'ask' ? 'var(--violet)' : st === 'quiet' ? 'var(--amber)' : st === 'loop' ? 'var(--red)' : p.c;
+    if (live) {
+      out += `<circle class="head" cx="${x(now)}" cy="${ty + th / 2}" r="5" fill="${hc}"/><circle cx="${x(now)}" cy="${ty + th / 2}" r="4.5" fill="${hc}"/>`;
+      out += `<text class="lmeta mono" x="${width - 2}" y="${y + 12}" text-anchor="end">${dur(j.elapsed)}</text>`;
+    } else {
+      const good = (j.state === 'done' && !j.flags && j.verdict !== 'fail') || j.reviewed, mark = good ? '✓' : j.state === 'done' ? '!' : '✕';
+      const col = good ? 'var(--green)' : j.state === 'done' ? 'var(--amber)' : 'var(--red)';
+      out += `<text x="${x(b) + 6}" y="${ty + 15}" fill="${col}" font-size="14" font-weight="700">${mark}</text>`;
+      out += `<text class="lmeta mono" x="${width - 2}" y="${y + 12}" text-anchor="end">${esc(j.verdict || j.state)}${j.flags ? ` · ${j.flags} flagged` : ''}${j.reviewed ? ' · reviewed' : ''} · ${dur(j.elapsed)}</text>`;
+    }
+    out += '</g>';
+    y += LANE;
+  });
+  out += `<line class="nowline" x1="${x(now)}" x2="${x(now)}" y1="${TOP - 8}" y2="${h}"/><text class="nowl" x="${x(now) + 5}" y="12">NOW</text>`;
+  document.getElementById('span').textContent = `last ${dur(span).replace(/ 00[ms]$/, '')}`;
+  return `<svg viewBox="0 0 ${width} ${h}" height="${h}" role="img" aria-label="Timeline of agent stages">${out}</svg>`;
+}
+
+function comms(d) {
+  const now = d.now, rows = [];
+  for (const j of d.jobs) {
+    const p = prov(j), add = (t, kind, what) => { if (t) rows.push({t, kind, what, who: j.name, c: p.c}); };
+    if (j.state !== 'queued') add(j.started, 'launch', `launched · ${modelName(j)}`);
+    for (const s of j.stages || []) {
+      if (s.kind === 'phase') add(s.t, 'stage', `stage: ${s.text}`);
+      else if (s.kind === 'asked') add(s.t, 'ask', `asks: ${s.text}`);
+      else if (s.kind === 'answered') add(s.t, 'good', `answered: ${s.text}`);
+    }
+    if (running(j) && j.now_msg) add(evTime(j.now_msg_t, now), 'say', cut(j.now_msg, 180));
+    if (j.state === 'queued') add(j.started, 'launch', `queued behind ${(j.after || []).join(', ')}`);
+    if (!running(j) && j.finished) {
+      const good = j.state === 'done' && !j.flags && j.verdict !== 'fail';
+      add(j.finished, good ? 'good' : 'bad', j.died ? `died of a connection error after ${dur(j.elapsed)}` : `landed: ${j.verdict || j.state}${j.flags ? ` · ${j.flags} flagged` : ''} after ${dur(j.elapsed)}`);
+    }
+  }
+  rows.sort((a, b) => b.t - a.t);
+  return rows.slice(0, 60).map(r => `<li class="k-${r.kind}" style="--c:${r.c}"><span class="t mono">${hm(r.t)}</span>` +
+    `<span class="who">${esc(r.who)}</span><span class="what">${esc(r.what)}</span></li>`).join('')
+    || '<li><span></span><span class="what" style="color:var(--dim)">Nothing on the wire yet.</span></li>';
+}
+
+function render(d) {
+  last = d;
+  announce(d.jobs, 'Mission Control · Agent Relay Feed');
+  document.documentElement.style.setProperty('--sync', `-${(Date.now() % 12000) / 1000}s`);
+  const live = d.jobs.filter(running).sort((a, b) => (ORDER[status(a)] - ORDER[status(b)]) || (a.started - b.started));
+  const queued = d.jobs.filter(j => j.state === 'queued');
+  const done = d.jobs.filter(j => !running(j) && j.state !== 'queued').sort((a, b) => (b.finished || 0) - (a.finished || 0));
+  const asking = live.filter(j => j.question), quiet = live.filter(j => !j.question && (j.stalled || j.loop));
+  const flagged = done.filter(j => (j.flags || j.state !== 'done' || ['fail', 'blocked', 'partial'].includes(j.verdict)) && !j.reviewed).length;
+  const stat = (n, label, cls) => `<div class="stat ${n ? cls : 'zero'}"><b class="num">${n}</b><span>${label}</span></div>`;
+  document.getElementById('stats').innerHTML = stat(live.length, 'in flight', '') + stat(asking.length, 'asking', 'ask') +
+    stat(quiet.length, 'quiet', 'quiet') + stat(queued.length, 'queued', '') + stat(done.length, 'landed', '') + `<a href="/evidence" title="Open the review page" style="text-decoration:none;color:inherit">${stat(flagged, 'need a look', 'flag')}</a>`;
+  document.getElementById('slots').innerHTML = (d.slots || []).map(r =>
+    `<span class="slot" title="${esc(r.held.map(h => `slot ${h.slot}: ${h.holder}`).join('\n') || 'free')}">${esc(r.name)} ` +
+    Array.from({length: r.slots}, (_, i) => `<i class="pip ${i < r.held.length ? 'on' : ''}"></i>`).join('') + '</span>').join('') +
+    (d.api_spend && (d.api_spend.month || d.api_spend.budget) ? `<span class="slot" title="Claude API spend recorded this month">API ` +
+      `<b class="mono" style="color:${d.api_spend.budget && d.api_spend.month >= d.api_spend.budget * 0.8 ? 'var(--red)' : 'var(--ink)'}">` +
+      `$${d.api_spend.month.toFixed(2)}${d.api_spend.budget ? ' / $' + d.api_spend.budget : ''}</b></span>` : '');
+  document.getElementById('alerts').innerHTML = asking.map(j =>
+    `<div class="alert"><span class="who">${esc(j.name)} needs an answer · ${dur(d.now - j.question_since)}</span>` +
+    `<span class="q">${esc(j.question)}</span>` + (d.can_answer
+      ? `<form data-send="answer" data-job="${esc(j.id)}"><input placeholder="Type your answer…" autocomplete="off"><button>ANSWER</button></form>`
+      : `<span class="how mono">delegate.py answer ${esc(j.id)} "…"</span>`) + '</div>').join('') +
+    done.filter(j => j.died && !j.reviewed).map(j =>
+    `<div class="alert"><span class="who">${esc(j.name)} died of a connection error · ${dur(d.now - j.finished)} ago</span>` +
+    `<span class="q">Not finished. Resume it once from the session that started it.</span>` +
+    `<span class="how mono">SendMessage to ${esc(j.id.replace(/^agent-/, ''))}</span></div>`).join('');
+  document.getElementById('tiles').innerHTML = live.length ? live.map(j => tile(j, d)).join('') :
+    `<div class="empty" style="grid-column:1/-1"><svg viewBox="0 0 120 120" fill="none" stroke="currentColor" style="color:var(--chrome)">
+      <circle cx="60" cy="60" r="52" opacity=".35"/><circle cx="60" cy="60" r="34" opacity=".25"/><circle cx="60" cy="60" r="16" opacity=".2"/>
+      <path class="scan" d="M60 60L60 8A52 52 0 0 1 105 34Z" fill="currentColor" fill-opacity=".14" stroke="none"/></svg>
+      <b>ALL QUIET</b>No agents in flight.</div>`;
+  const lanes = live.concat(done.slice(0, 8)), box = document.getElementById('tl');
+  box.innerHTML = lanes.length ? timeline(d, lanes, Math.max(280, box.clientWidth)) :
+    '<div style="color:var(--dim);padding:18px 4px">No flights in the last hours.</div>';
+  document.getElementById('log').innerHTML = comms(d);
+  document.getElementById('clock').textContent = new Date(d.now * 1000).toLocaleTimeString([], {hour12: false});
+}
+
+// ---------------------------------------------------------------- demo data (open /mission?demo)
+const demoBase = Date.now() / 1000;
+function demo() {
+  const now = Date.now() / 1000, m = 60, ago = s => now - s;
+  const stamp = t => new Date(t * 1000).toTimeString().slice(0, 8);
+  const sparks = (from, n, bad) => Array.from({length: n}, (_, i) => ({t: stamp(ago(from * (1 - i / n))), kind: 'command', icon: 'run',
+    verb: 'Run', detail: 'step', raw: 'step', rc: bad && i % 9 === 4 ? 1 : 0}));
+  const job = (o) => Object.assign({state: 'running', source: 'relay', backend: 'codex', counts: {commands: 40}, idle: 12,
+    stalled: false, loop: false, queued: 0, phases: (o.stages || []).filter(s => s.kind === 'phase').length,
+    elapsed: (o.finished || now) - o.started, events: [], flags: 0}, o);
+  const ph = (t, text) => ({t, kind: 'phase', text});
+  return {now, stall: 480, processes: [], slots: [
+    {name: 'build', slots: 1, held: [{slot: 1, holder: 'demo-1', since: ago(9 * m)}]},
+    {name: 'test-copy', slots: 2, held: [{slot: 1, holder: 'demo-2', since: ago(31 * m)}]}],
+    jobs: [
+      job({id: 'demo-1', name: 'Parser rewrite', label: 'GPT-6.1-Sol (high)', profile: 'gpt-sol-high', started: ago(96 * m),
+        stages: [ph(ago(95 * m), 'Read the old parser'), ph(ago(71 * m), 'Design the new grammar'), ph(ago(48 * m), 'Implement tokenizer'),
+          {t: ago(40 * m), kind: 'asked', text: 'Keep the legacy escape rules?'}, {t: ago(37 * m), kind: 'answered', text: 'Yes, behind a flag'},
+          ph(ago(22 * m), 'Port the test suite'), ph(ago(9 * m), 'Full build and gates')],
+        phase: 'Full build and gates', phase_since: ago(9 * m), events: sparks(30 * m, 44, true), counts: {commands: 212},
+        current: {verb: 'Build', detail: 'release configuration', raw: 'build'}, now_msg: 'Gates 1-3 are green; running the long suite.', now_msg_t: stamp(ago(3 * m))}),
+      job({id: 'demo-2', name: 'Live test round 4', label: 'Opus 5.5', source: 'claude', backend: 'claude', profile: 'engineer', started: ago(52 * m),
+        stages: [ph(ago(51 * m), 'Prepare test copy'), ph(ago(44 * m), 'Live test 1 of 5'), ph(ago(33 * m), 'Live test 2 of 5'), ph(ago(18 * m), 'Live test 3 of 5')],
+        phase: 'Live test 3 of 5', phase_since: ago(18 * m), events: sparks(25 * m, 30), counts: {commands: 133}, idle: 41,
+        current: {verb: 'Capture', detail: 'frame 0412', raw: 'capture'}}),
+      job({id: 'demo-3', name: 'Trace the crash', label: 'GPT-6-Astra (extra high)', profile: 'gpt-astra-xhigh', started: ago(38 * m),
+        stages: [ph(ago(37 * m), 'Reproduce from the dump'), ph(ago(21 * m), 'Walk the allocator'), {t: ago(4 * m), kind: 'asked', text: 'The fix needs a 12-byte patch in a signed module. Go ahead, or report only?'}],
+        phase: 'Walk the allocator', phase_since: ago(21 * m), question: 'The fix needs a 12-byte patch in a signed module. Go ahead, or report only?', question_since: ago(4 * m),
+        events: sparks(30 * m, 26), counts: {commands: 88}, idle: 236, current: {verb: 'ask', detail: 'waiting for the supervisor', raw: 'ask'}}),
+      job({id: 'demo-4', name: 'Docs sweep', label: 'Kimi K3.1 Pro', backend: 'kimi', profile: 'kimi-k31-pro', started: ago(27 * m),
+        stages: [ph(ago(26 * m), 'Inventory the pages')], phase: 'Inventory the pages', phase_since: ago(26 * m), stalled: true, idle: 11 * m,
+        events: sparks(27 * m, 9), counts: {commands: 19}, queued: 1, current: {verb: 'Read', detail: 'index.md', raw: 'read'}}),
+      job({id: 'demo-5', name: 'Release notes draft', label: 'Claude Sonnet 5.5 (high)', backend: 'claude-api', profile: 'claude-api-sonnet', state: 'done',
+        started: ago(140 * m), finished: ago(104 * m), verdict: 'pass', stages: [ph(ago(139 * m), 'Collect merged changes'), ph(ago(121 * m), 'Write the draft')]}),
+      job({id: 'demo-6', name: 'Borderless 4K fix', label: 'GPT-6.1-Sol (medium)', profile: 'gpt-sol-med', state: 'done', started: ago(170 * m), finished: ago(88 * m),
+        verdict: 'pass', flags: 1, stages: [ph(ago(168 * m), 'Find the mode switch'), ph(ago(133 * m), 'Patch and build'), ph(ago(104 * m), 'Capture evidence')]}),
+      job({id: 'demo-7', name: 'Offline install check', label: 'GPT-6.1-Terra (high)', profile: 'gpt-terra-high', state: 'failed', started: ago(75 * m), finished: ago(61 * m),
+        stages: [ph(ago(74 * m), 'Build the installer')]}),
+      job({id: 'agent-a88abea383c3cd1c5', name: 'Save-format audit', label: 'Opus 5.5', source: 'claude', backend: 'claude', profile: 'general-purpose',
+        state: 'failed', died: true, started: ago(52 * m), finished: ago(9 * m), stages: [ph(ago(51 * m), 'Read the save writer'), ph(ago(30 * m), 'Compare old saves')]}),
+      job({id: 'demo-9', name: '200 boot loops', label: 'Background command', backend: 'shell', profile: 'bg', started: ago(18 * m),
+        stages: [ph(ago(18 * m), 'running the command')], phase: 'running the command', phase_since: ago(18 * m),
+        events: sparks(18 * m, 12), counts: {commands: 0}, idle: 4, now_msg: 'boot 83 of 200 ok (7.9 s)', current: null}),
+    ]};
+}
+
+
+// ---- answering from the page (needs feed_pin in the config) -------------------------------
+async function sendTo(kind, job, text) {
+  let pin = safeGet('feed.pin') || prompt('PIN for answering from this page');
+  if (!pin) return false;
+  let r, d = {};
+  try {
+    r = await fetch('/api/' + kind, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({pin, job, text})});
+    d = await r.json();
+  } catch (e) { alert('Could not reach the feed server.'); return false; }
+  if (r.status === 401) { safeSet('feed.pin', ''); alert(d.error || 'Wrong PIN.'); return false; }
+  if (!r.ok) { alert(d.error || 'That did not work.'); return false; }
+  safeSet('feed.pin', pin);
+  return true;
+}
+document.addEventListener('submit', async ev => {
+  const f = ev.target.closest('form[data-send]'); if (!f) return;
+  ev.preventDefault();
+  const box = f.querySelector('input'), text = box.value.trim();
+  if (!text) return;
+  f.querySelector('button').disabled = true;
+  if (await sendTo(f.dataset.send, f.dataset.job, text)) { box.value = ''; box.blur(); }
+  f.querySelector('button').disabled = false;
+});
+function typing() { const a = document.activeElement; return !!(a && a.closest && a.closest('form[data-send]')) ||
+  [...document.querySelectorAll('form[data-send] input')].some(i => i.value); }
+
+// ---- a waiting question should be hard to miss ---------------------------------------------
+const knownQuestions = new Set(); let firstRender = true;
+function announce(jobs, baseTitle) {
+  const asking = jobs.filter(j => j.question && (j.state === 'running' || j.state === 'starting'));
+  document.title = asking.length ? `(${asking.length}) needs an answer · ${baseTitle}` : baseTitle;
+  let fresh = false;
+  for (const j of asking) { const k = j.id + '|' + j.question_since; if (!knownQuestions.has(k)) { knownQuestions.add(k); fresh = true; } }
+  if (fresh && !firstRender) {
+    try {        // a short two-note chime; browsers may refuse sound until the page has been clicked
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      [660, 880].forEach((hz, i) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = hz;
+        g.gain.setValueAtTime(0.0001, ctx.currentTime + i * 0.18); g.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + i * 0.18 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i * 0.18 + 0.3); o.connect(g).connect(ctx.destination);
+        o.start(ctx.currentTime + i * 0.18); o.stop(ctx.currentTime + i * 0.18 + 0.32); });
+    } catch (e) {}
+  }
+  firstRender = false;
+}
+let fails = 0;
+async function tick() {
+  try {
+    const d = DEMO ? demo() : await (await fetch('/api/jobs', {cache: 'no-store'})).json();
+    if (!typing()) render(d);
+    fails = 0;
+    document.getElementById('upd').textContent = DEMO ? 'demo data' : 'live';
+  } catch (e) {
+    fails++;
+    document.getElementById('upd').textContent = 'feed server not answering' + (fails > 1 ? ` (${fails})` : '');
+  }
+  setTimeout(tick, 2500);
+}
+let resizing;
+addEventListener('resize', () => { clearTimeout(resizing); resizing = setTimeout(() => last && render(last), 120); });
+tick();
+</script>
+</body>
+</html>

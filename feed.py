@@ -14,22 +14,27 @@ read from their transcripts by claude_agents.py.
 Read-only: it never writes to a job, an agent folder or anything else.
 """
 import argparse
+import hmac
 import json
 import os
 import re
 import subprocess
 import threading
 import time
+import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import claude_agents as CA
 import delegate as D
+import results as R
 from delegate_config import CONFIG, ignored_activity_path, normalize_path, repetition
 
 HERE = Path(__file__).resolve().parent
-PAGE = HERE / "feed.html"
+PAGE = HERE / 'feed.html'
+MISSION_PAGE = HERE / 'mission.html'
+EVIDENCE_PAGE = HERE / 'evidence.html'
 STALL_S = CONFIG["stall_seconds"]
 LOOP_N = CONFIG["loop_count"]
 
@@ -232,6 +237,8 @@ def humanize_claude(name, inp):
 # ------------------------------------------------------------------ jobs
 
 def task_name(meta, job_id):
+    if meta.get('name'):
+        return meta['name']
     src = Path(meta.get('prompt_source') or '')
     if src.name and src.parent.name == 'inbox':
         return _INBOX_SUFFIX.sub('', src.stem)
@@ -377,11 +384,17 @@ def job_summary(jd, now):
     state = st.get('state', '?')
     running = state in ('running', 'starting')
     idle = now - last_touch
+    info = D.phase_info(jd)
+    stages = [dict(t=e.get('t'), kind=e['kind'], text=e.get('text')) for e in D.read_journal(jd)
+              if e.get('kind') in ('phase', 'asked', 'answered')][-200:]
+    if not running:     # a question dies with its job
+        info.update(question=None, question_since=None, queued=0)
     return dict(
         id=jd.name, name=task_name(meta, jd.name), profile=profile, label=effective_label(meta, profile),
         backend=meta.get('backend'), mode=meta.get('mode'), cwd=meta.get('cwd'), state=state,
         started=started, finished=finished, elapsed=(finished or now) - started, idle=idle if running else None,
-        stalled=running and idle > STALL_S, loop=running and loop, retries=retries,
+        # a worker waiting for an answer is quiet on purpose
+        stalled=running and idle > STALL_S and not info['question'], loop=running and loop, retries=retries,
         now_msg=msgs[-1]['text'] if msgs else None, now_msg_t=msgs[-1]['t'] if msgs else None,
         current=cmds[-1] if cmds else None,
         counts=dict(commands=len(cmds), failed=sum(1 for e in cmds if e.get('rc')),
@@ -391,7 +404,10 @@ def job_summary(jd, now):
         progress=tail_lines(meta.get('progress_file') or ap['progress'], 6),
         result=(D.read_text(jd / 'result.md').strip()[:4000] if not running else None),
         errors=st.get('errors') or [],
-        source='relay', agent_type=None, depth=None, parent=None, tokens=None,
+        source='relay', agent_type=None, depth=None, parent=None, tokens=st.get('usage'),
+        total_cost_usd=st.get('total_cost_usd'), verdict=st.get('verdict'), flags=st.get('flags') or 0, stages=stages, after=meta.get('after') or [],
+        provider=meta.get('provider'),
+        resumed_by=st.get('resumed_by'), died=False, resume=None, **info,
     )
 
 
@@ -423,7 +439,7 @@ def claude_job_summary(rec, now):
     finished = rec['finished']
     return dict(
         id=rec['id'], name=rec['label'], profile=rec['agent_type'], label=rec['model'] or 'Claude',
-        backend='claude', mode=None, cwd=rec['workdir'], state=rec['state'],
+        backend='claude', mode=None, cwd=rec['workdir'], state=rec['state'], total_cost_usd=None,
         started=rec['started'], finished=finished, elapsed=(finished or now) - rec['started'],
         idle=idle if running else None, stalled=running and idle > STALL_S, loop=running and loop, retries=0,
         now_msg=msgs[-1]['text'] if msgs else None, now_msg_t=msgs[-1]['t'] if msgs else None,
@@ -432,6 +448,9 @@ def claude_job_summary(rec, now):
                     errors=len(rec['errors'])),
         events=events, progress=[], result=rec['result'], errors=rec['errors'],
         source='claude', agent_type=rec['agent_type'], depth=rec['depth'], parent=rec['parent'], tokens=rec['tokens'],
+        phase=rec.get('phase'), phase_since=rec.get('phase_since'), phases=rec.get('phases', 0),
+        question=None, question_since=None, queued=0, verdict=rec.get('verdict'), flags=rec.get('flags') or 0, stages=rec.get('stages') or [], after=[], resumed_by=None, provider=None,
+        died=bool(rec.get('died')), resume=rec.get('resume'),
     )
 
 
@@ -518,7 +537,7 @@ def watched_processes(job_cwds):
 
 
 def snapshot(hours, demo=False):
-    if demo:
+    if demo:        # invented jobs; nothing is read from this machine's job data
         from demo_data import demo_snapshot
         return demo_snapshot(hours)
     now = time.time()
@@ -531,7 +550,7 @@ def snapshot(hours, demo=False):
                 s = job_summary(jd, now)
             except Exception as e:      # one broken job must not blank the page
                 s = dict(id=jd.name, name=jd.name, state='?', error=repr(e), started=now, elapsed=0, events=[])
-            if s['state'] in ('running', 'starting') or now - (s.get('finished') or s['started']) < hours * 3600:
+            if s['state'] in ('running', 'starting', 'queued') or now - (s.get('finished') or s['started']) < hours * 3600:
                 jobs.append(s)
     try:
         jobs += [s for s in claude_jobs(now)
@@ -539,11 +558,179 @@ def snapshot(hours, demo=False):
     except Exception as e:      # an unreadable transcript must not blank the page either
         jobs.append(dict(id='claude-agents', name='Claude subagents', state='?', error=repr(e), started=now,
                          elapsed=0, events=[], source='claude'))
+    reviewed = D.load_reviewed()
+    for j in jobs:
+        j['reviewed'] = j.get('id') in reviewed
     jobs.sort(key=lambda j: -(j.get('started') or 0))
     # a subagent usually shares its whole session's folder, so watched processes are attributed to relay jobs only
     cwds = [(j['name'], j.get('cwd')) for j in jobs if j['state'] in ('running', 'starting') and j.get('source') != 'claude']
-    return dict(now=now, jobs=jobs, processes=watched_processes(cwds),
+    try:
+        slots = D.leases.snapshot(D.DELEGATE_ROOT, CONFIG['resources'], D.job_running, now) if CONFIG['resources'] else []
+    except Exception:       # an unreadable lease file must not blank the page
+        slots = []
+    return dict(now=now, jobs=jobs, processes=watched_processes(cwds), slots=slots, stall=STALL_S,
+                can_answer=bool(CONFIG['feed_pin']), api_spend=D.api_spend(now),
+                nous_spend=dict(month=D.nous.month_spend(D.DELEGATE_ROOT, now), budget=CONFIG['nous_monthly_usd'] or None),
                 process_panel=bool(CONFIG['watched_processes']))
+
+
+# ------------------------------------------------------------------ evidence gallery
+
+IMAGE_TYPES = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+               '.bmp': 'image/bmp', '.webp': 'image/webp'}
+EVIDENCE_MAX_BYTES = 40 * 1024 * 1024
+
+
+def _job_evidence(jd, checked=None):
+    """The evidence entries of a job's result block (only entries with a path)."""
+    checked = (D.load_json(jd / 'result.json') or {}) if checked is None else checked
+    data = checked.get('data') if isinstance(checked.get('data'), dict) else {}
+    entries = data.get('evidence') if isinstance(data.get('evidence'), list) else []
+    return checked, data, [e for e in entries if isinstance(e, dict) and isinstance(e.get('path'), str) and e['path']]
+
+
+def _claude_finished_records():
+    reader = claude_reader()
+    if reader is None:
+        return []
+    try:
+        return [r for r in reader.scan() if r['state'] in D.TERMINAL]
+    except Exception:
+        return []
+
+
+def _claude_records_with_results():
+    return [r for r in _claude_finished_records() if r.get('checked')]
+
+
+def _evidence_items(job, entries, started):
+    items = []
+    for i, e in enumerate(entries):
+        path = e['path']
+        try:
+            stat = os.stat(path)
+            exists, size, mtime = os.path.isfile(path), stat.st_size, stat.st_mtime
+        except OSError:
+            exists, size, mtime = False, 0, None
+        dims = R.image_size(path) if exists else None
+        image = exists and Path(path).suffix.lower() in IMAGE_TYPES and dims is not None
+        rec = R.capture.load_record(path) if image else None
+        items.append(dict(job=job, i=i, path=path, shows=e.get('shows'), exists=exists, size=size, mtime=mtime,
+                          captured=R.capture.describe(rec) if rec else None, claimed_process=e.get('process') or None,
+                          image=image, width=dims[0] if dims else None, height=dims[1] if dims else None,
+                          claimed_width=e.get('width') or None, claimed_height=e.get('height') or None,
+                          stale=bool(exists and started and mtime < started - 60)))
+    return items
+
+
+def evidence(hours):
+    """Every evidence file cited by recently finished jobs, with what can be read off the file itself."""
+    now, jobs, reviewed = time.time(), [], D.load_reviewed()
+
+    def add(job, name, label, state, checked, data, entries, finished, started, errors):
+        flags = checked.get('flags') or 0
+        look = D.needs_look(state, checked.get('verdict'), flags)
+        if not entries and not look:
+            return          # nothing to look at: a clean job that cites no evidence
+        problems = [f['text'] for f in checked.get('findings') or [] if not f.get('ok')]
+        if state != 'done':
+            problems += [str(e) for e in errors or []][:3]
+        jobs.append(dict(id=job, name=name, label=label, state=state, verdict=checked.get('verdict'), flags=flags,
+                         finished=finished, summary=data.get('summary'), needs_look=look, problems=problems[:12],
+                         reviewed=job in reviewed, items=_evidence_items(job, entries, started)))
+
+    if D.JOBS_ROOT.is_dir():
+        for jd in sorted((p for p in D.JOBS_ROOT.iterdir() if p.is_dir()), reverse=True)[:120]:
+            st = D.load_json(jd / 'status.json', {}) or {}
+            if st.get('state') not in D.TERMINAL or st.get('resumed_by'):
+                continue        # still going, or superseded by its automatic resume
+            meta = D.load_json(jd / 'meta.json', {}) or {}
+            finished = st.get('finished') or meta.get('created') or now
+            if now - finished > hours * 3600:
+                continue
+            checked, data, entries = _job_evidence(jd)
+            add(jd.name, task_name(meta, jd.name), meta.get('label'), st.get('state'), checked, data, entries,
+                finished, st.get('started'), st.get('errors'))
+    for rec in _claude_finished_records():
+        finished = rec.get('finished') or now
+        if now - finished <= hours * 3600:
+            checked, data, entries = _job_evidence(None, rec.get('checked') or {})
+            add(rec['id'], rec['label'], rec.get('model') or 'Claude', rec['state'], checked, data, entries,
+                finished, rec.get('started'), rec.get('errors'))
+    jobs.sort(key=lambda j: -j['finished'])
+    return dict(now=now, jobs=jobs, can_review=bool(CONFIG['feed_pin']))
+
+
+def evidence_file(job, index):
+    """(content type, bytes) for one cited evidence file, or None. Files are addressed only by job
+    and position in that job's result block, never by a path from the request."""
+    if not re.fullmatch(r'[\w.-]+', job or ''):
+        return None
+    if (D.JOBS_ROOT / job).is_dir():
+        _checked, _data, entries = _job_evidence(D.JOBS_ROOT / job)
+    else:       # a Claude Code subagent that ended with a result block
+        rec = next((r for r in _claude_records_with_results() if r['id'] == job), None)
+        if rec is None:
+            return None
+        _checked, _data, entries = _job_evidence(None, rec['checked'])
+    if not 0 <= index < len(entries):
+        return None
+    path = entries[index]['path']
+    try:
+        if not os.path.isfile(path) or os.path.getsize(path) > EVIDENCE_MAX_BYTES:
+            return None
+        kind = IMAGE_TYPES.get(Path(path).suffix.lower())
+        if kind and R.image_size(path) is not None:
+            return kind, Path(path).read_bytes()
+        with open(path, 'rb') as f:         # anything else is shown as the start of a text file
+            return 'text/plain; charset=utf-8', f.read(20000).decode('utf-8', 'replace').encode('utf-8')
+    except OSError:
+        return None
+
+
+# ------------------------------------------------------------------ background watcher
+
+class Watcher(threading.Thread):
+    """While the feed runs it also keeps two things moving that otherwise need a waiting
+    session: queued jobs are released when what they wait for ends, and Claude Code subagents,
+    which have no runner of their own, get an alert when they finish."""
+
+    def __init__(self, interval=5):
+        super().__init__(daemon=True)
+        self.interval = interval
+        self.running = set()        # subagents seen running by this process
+
+    def step(self):
+        try:
+            D.start_ready()
+        except Exception:
+            pass
+        reader = claude_reader()
+        if reader is None or not CONFIG['notify']:
+            return
+        for rec in reader.scan():
+            if rec['state'] == 'running':
+                self.running.add(rec['id'])
+            elif rec['id'] in self.running:
+                self.running.discard(rec['id'])
+                checked = rec.get('checked') or {}
+                summary = ((checked.get('data') or {}).get('summary') or '')
+                if rec.get('died'):
+                    summary = f"Died of a connection error, not finished. {rec['id']}: resume it once from its session."
+                D.notify.outcome(rec['label'], rec.get('model') or 'Claude', rec['state'], rec.get('verdict'),
+                                 rec.get('flags') or 0, summary,
+                                 D.fmt_secs((rec.get('finished') or time.time()) - rec['started']))
+
+    def run(self):
+        while True:
+            try:
+                self.step()
+            except Exception:
+                pass
+            time.sleep(self.interval)
+
+
+_pin_failures = {}      # client address -> (wrong PINs in a row, locked until)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -564,11 +751,79 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.startswith('/api/jobs'):
-            self._send(200, json.dumps(snapshot(self.hours, demo=self.demo)), 'application/json')
+            self._send(200, json.dumps(snapshot(self.hours, demo=getattr(self, 'demo', False))), 'application/json')
+        elif getattr(self, 'demo', False) and self.path.split('?')[0].startswith('/api/evidence'):
+            if self.path.split('?')[0] == '/api/evidence':     # the demo has no files to show
+                self._send(200, json.dumps(dict(now=time.time(), jobs=[], can_review=False)), 'application/json')
+            else:
+                self._send(404, 'not found', 'text/plain')
         elif self.path in ('/', '/index.html'):
             self._send(200, PAGE.read_text(encoding='utf-8'), 'text/html; charset=utf-8')
+        elif self.path.split('?')[0] in ('/mission', '/mission.html'):
+            self._send(200, MISSION_PAGE.read_text(encoding='utf-8'), 'text/html; charset=utf-8')
+        elif self.path.split('?')[0] in ('/evidence', '/evidence.html'):
+            self._send(200, EVIDENCE_PAGE.read_text(encoding='utf-8'), 'text/html; charset=utf-8')
+        elif self.path.split('?')[0] == '/api/evidence':
+            self._send(200, json.dumps(evidence(self.hours)), 'application/json')
+        elif self.path.split('?')[0] == '/api/evidence/file':
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            try:
+                found = evidence_file(query.get('job', [''])[0], int(query.get('i', ['-1'])[0]))
+            except ValueError:
+                found = None
+            if found is None:
+                self._send(404, 'not found', 'text/plain')
+            else:
+                self._send(200, found[1], found[0])
         else:
             self._send(404, 'not found', 'text/plain')
+
+    def do_POST(self):
+        """Answer a worker's question, send it a message, or mark a finished job as reviewed. Needs the PIN."""
+        path = self.path.split('?')[0]
+        if path not in ('/api/answer', '/api/tell', '/api/review'):
+            return self._send(404, 'not found', 'text/plain')
+
+        def reply(code, **body):
+            self._send(code, json.dumps(body), 'application/json')
+
+        if getattr(self, 'demo', False):
+            return reply(403, error='This is the demo: there are no real jobs to answer.')
+        pin = CONFIG['feed_pin']
+        if not pin:
+            return reply(403, error='Answering from the feed is off. Set feed_pin in the config to turn it on.')
+        who, now = self.client_address[0], time.time()
+        wrong, locked_until = _pin_failures.get(who, (0, 0))
+        if locked_until > now:
+            return reply(429, error='Too many wrong PINs. Try again in a few minutes.')
+        try:
+            length = int(self.headers.get('Content-Length') or 0)
+            if not 0 < length <= 20000:
+                raise ValueError
+            body = json.loads(self.rfile.read(length))
+            if not isinstance(body, dict):
+                raise ValueError
+        except (ValueError, OSError):
+            return reply(400, error='Bad request.')
+        if not hmac.compare_digest(str(body.get('pin', '')).encode('utf-8'), pin.encode('utf-8')):
+            wrong += 1
+            _pin_failures[who] = (0, now + 300) if wrong >= 5 else (wrong, 0)
+            return reply(401, error='Wrong PIN.')
+        _pin_failures.pop(who, None)
+        job, text = str(body.get('job', '')), str(body.get('text', ''))[:4000]
+        if path == '/api/review':
+            if not re.fullmatch(r'[\w.-]+', job) or not ((D.JOBS_ROOT / job).is_dir() or job.startswith('agent-')):
+                return reply(404, error='No such job.')
+            on = D.set_reviewed(job, not body.get('undo'))
+            return reply(200, ok=True, reviewed=on)
+        jd = D.JOBS_ROOT / job
+        if not re.fullmatch(r'[\w.-]+', job) or not jd.is_dir():
+            return reply(404, error='No such job.')
+        try:
+            message = D.answer_job(jd, text) if path == '/api/answer' else D.tell_job(jd, text)
+        except ValueError as e:
+            return reply(409, error=str(e))
+        reply(200, ok=True, message=message)
 
     def log_message(self, *a):
         pass
@@ -582,30 +837,51 @@ def _quiet_handle_error(server, request, client_address):
     type(server).handle_error(server, request, client_address)
 
 
+def lan_address():
+    """This machine's address on the local network, for the URL to open from another device (None if unknown)."""
+    import socket
+    try:
+        addr = socket.gethostbyname(socket.gethostname())
+    except OSError:
+        return None
+    return None if addr.startswith('127.') else addr
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--host', default=CONFIG['feed_host'],
+                    help='address to listen on (default 127.0.0.1; 0.0.0.0 shows the read-only feed, '
+                         'with no login, to every device on your local network)')
     ap.add_argument('--port', type=int, default=CONFIG['feed_port'])
     ap.add_argument('--hours', type=float, default=12, help='show finished jobs from the last N hours (default 12)')
     ap.add_argument('--dump', action='store_true', help='print one snapshot as JSON and exit (for testing)')
-    ap.add_argument('--demo', action='store_true', help='show invented jobs and processes without reading job data')
     ap.add_argument('--open', action='store_true', help='open the loopback feed in your default browser')
+    ap.add_argument('--demo', action='store_true', help='show invented jobs and processes without reading job data')
     a = ap.parse_args(argv)
     if a.dump:
         print(json.dumps(snapshot(a.hours, demo=a.demo), indent=1))
         return
     Handler.hours = a.hours
     Handler.demo = a.demo
-    srv = ThreadingHTTPServer(('127.0.0.1', a.port), Handler)
+    srv = ThreadingHTTPServer((a.host, a.port), Handler)
     srv.daemon_threads = True
     srv.handle_error = _quiet_handle_error.__get__(srv)
-    url = f'http://127.0.0.1:{srv.server_port}'
+    everywhere = a.host in ('0.0.0.0', '::', '')
+    local = '127.0.0.1' if everywhere else a.host
+    url = f'http://{local}:{srv.server_port}'
     print(f'Agent Relay Feed on {url}  (Ctrl+C to stop)', flush=True)
+    if everywhere:
+        lan = lan_address() or "<this computer's address>"
+        print(f'Other devices on this network: http://{lan}:{srv.server_port}  '
+              '(read-only, no login)', flush=True)
     if a.open:
         try:
             if not webbrowser.open(url):
                 print(f'Browser did not open; open {url} manually.', flush=True)
         except webbrowser.Error as exc:
             print(f'Browser did not open: {exc}; open {url} manually.', flush=True)
+    if not a.demo:      # the demo leaves real queued jobs and alerts alone
+        Watcher().start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
