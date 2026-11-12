@@ -2,7 +2,7 @@
 
 These instructions apply throughout this repository, including automated pull-request reviews.
 
-This is the Python relay/plugin and local task feed for external coding agents. It is tooling, not a game runtime. Read `README.md`; the bridge is `delegate.py`, configuration is `delegate_config.py`, the feed is `feed.py` with the pages `feed.html`, `mission.html`, `orbit.html` and `evidence.html`, and Claude-session parsing is `claude_agents.py`. Smaller modules: `leases.py` (slots for shared resources) and `baseline.py` (shared state saved and put back around them), `results.py` (result blocks and claim checks), `capture.py` (window screenshots with a record), `notify.py` (alerts), `nous.py` and `claude_api.py` (paid backends), `detach.py` (starting runners outside the caller's process tree), `demo_data.py` (invented feed data). Python 3.10+ and the standard library are the development baseline.
+This is the Python relay/plugin and local task feed for external coding agents. It is tooling, not a game runtime. Read `README.md` and the pages in `docs/` (CLI, SUPERVISING, FEED, BACKENDS, SLOTS, CONFIG, INTERNALS, DEVELOPMENT); the bridge is `delegate.py`, configuration is `delegate_config.py`, the feed is `feed.py` with the pages `feed.html`, `mission.html`, `orbit.html` and `evidence.html`, and Claude-session parsing is `claude_agents.py`. Smaller modules: `leases.py` (slots for shared resources) and `baseline.py` (shared state saved and put back around them), `results.py` (result blocks and claim checks), `capture.py` (window screenshots with a record), `notify.py` (alerts), `nous.py` and `claude_api.py` (paid backends), `detach.py` (starting runners outside the caller's process tree), `demo_data.py` (invented feed data). Python 3.10+ and the standard library are the development baseline.
 
 - Keep the distinction between access modes explicit. Codex sandbox flags and tool-disable settings are enforcement; Kimi read/write modes are instructions, not filesystem isolation. Never silently widen access or launch paid/authenticated provider jobs as a test.
 - Preserve job identity, resume/backend checks, cancellation, process ownership, timeouts and atomic state/report updates. A running job's wait timeout is not completion. Do not kill unrelated processes or start a duplicate job to poll status.
@@ -11,7 +11,7 @@ This is the Python relay/plugin and local task feed for external coding agents. 
 - Plugin `agents/` definitions are generated from `install_agents.py`'s `SPECS` and template via `build_plugin.py`. Edit the source and regenerate together rather than hand-editing checksummed output. Preserve modified/unmanaged user definitions; `--force` must remain explicit. Keep `.claude-plugin/` manifests and `skills/` consistent.
 - Ship original code/docs and synthetic demos, preserving `LICENSE` and `NOTICE`; never add game assets, official game logos, decoded game data or secrets.
 
-There is no committed CI workflow. The README's local validation commands, from the root, are:
+There is no committed CI workflow. The local validation commands (`docs/DEVELOPMENT.md`), from the root, are:
 
 ```
 python -m unittest

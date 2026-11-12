@@ -36,7 +36,7 @@ Select one of the plugin agents using its full namespaced name:
 
 Nous Portal relays bill the owner's Nous credits and need the owner's key file;
 they run through the Kimi CLI, so they are unsandboxed like Kimi. Each job has a
-spend cap and the month has a budget; `delegate.py spend` shows both.
+spend cap and the month has a budget; `delegate.py board` shows the month's spend.
 
 Use Claude API relays ONLY when the owner approved this specific run. Include
 the approval note so the relay passes `--approved "<who/when/why>"`, and copy any
@@ -52,8 +52,10 @@ installed/authenticated CLIs and profile IDs before the first delegation:
 python "${CLAUDE_PLUGIN_ROOT}/delegate.py" profiles
 ```
 
-Use `python3` when necessary. Read `${CLAUDE_PLUGIN_ROOT}/README.md` for setup,
-profile configuration, CLI overrides, mode semantics, feed, and uninstall.
+Use `python3` when necessary. Read `${CLAUDE_PLUGIN_ROOT}/README.md` for an overview and
+`${CLAUDE_PLUGIN_ROOT}/docs/` for details: `CLI.md` (every command), `SUPERVISING.md`
+(running many agents), `BACKENDS.md` (profiles and access modes), `SLOTS.md`, `FEED.md`,
+`CONFIG.md` and `INSTALL.md` (setup and uninstall).
 Plugin-root references are substituted inline, not Bash environment variables.
 
 Give the Agent tool a self-contained brief: goal, working directory, relevant
@@ -73,7 +75,7 @@ paths without claiming its results have been independently verified. Review
 claims and changes before presenting them as verified work.
 
 When several jobs run, supervise them with the bridge instead of reading logs
-(the README has the details of each):
+(`docs/SUPERVISING.md` describes the workflow and `docs/CLI.md` each command):
 
 - `delegate.py board` prints one line per running job and Claude Code subagent:
   stage, time, open question and slots held. `delegate.py digest` sums up what
