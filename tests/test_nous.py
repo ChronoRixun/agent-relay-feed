@@ -44,6 +44,9 @@ class NousUnitTests(unittest.TestCase):
             self.assertEqual(cfg['models']['nous/glm-5.3']['model'], 'z-ai/glm-5.3')
             self.assertNotIn('support_efforts', cfg['models']['nous/mimo-v2.6-pro'])
             self.assertNotIn('api_key =', text)
+            # a model with a smaller context window is not told it has the usual one
+            self.assertEqual(cfg['models']['nous/qwen3.8-flash']['max_context_size'], 1000000)
+            self.assertEqual(cfg['models']['nous/mimo-v2.6-flash']['max_context_size'], 1048576)
 
     def test_every_profile_names_a_known_model(self):
         for name, prof in D.PROFILES.items():

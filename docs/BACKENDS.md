@@ -39,13 +39,15 @@ tools.
 ## Models from Nous Portal
 
 [Nous Portal](https://portal.nousresearch.com/models) sells access to many model families through one
-OpenAI-compatible API, billed to Nous credits. Six of them are profiles here, each run by the Kimi CLI:
+OpenAI-compatible API, billed to Nous credits. Eight of them are profiles here, each run by the Kimi CLI:
 
 | Profile | Model | Suited to |
 |---|---|---|
 | `nous-deepseek-pro` | DeepSeek V4 Pro | implementation, scripts, second opinions |
 | `nous-deepseek-flash` | DeepSeek V4.1 Flash | cheap bulk and routine work |
 | `nous-mimo-pro` | Xiaomi MiMo V2.6 Pro | long investigations (cached input is nearly free) |
+| `nous-mimo-flash` | Xiaomi MiMo V2.6 Flash | cheap chores and quick reads of large inputs |
+| `nous-qwen-flash` | Qwen3.8 Flash | cheap routine coding, a quick look from another family |
 | `nous-glm` | Z.ai GLM 5.3 | long-horizon coding, a different-family opinion |
 | `nous-glm-flash` | Z.ai GLM 5.3 Flash | cheap routine coding and chores |
 | `nous-gemini-argon` | Google Gemini 4 Argon | reviews of plans, diffs and conclusions (the expensive tier) |
@@ -124,7 +126,7 @@ Tests make no real API calls. Claude API jobs are never resumed automatically an
 
 ## The relay agents
 
-All twenty relay variants come from one template:
+All twenty-two relay variants come from one template:
 
 | Agent tool name | Delegate profile | Effort |
 |---|---|---|
@@ -145,6 +147,8 @@ All twenty relay variants come from one template:
 | `nous-deepseek-pro` | `nous-deepseek-pro` | high |
 | `nous-deepseek-flash` | `nous-deepseek-flash` | high |
 | `nous-mimo-pro` | `nous-mimo-pro` | default |
+| `nous-mimo-flash` | `nous-mimo-flash` | default |
+| `nous-qwen-flash` | `nous-qwen-flash` | default |
 | `nous-glm` | `nous-glm` | high |
 | `nous-glm-flash` | `nous-glm-flash` | high |
 | `nous-gemini-argon` | `nous-gemini-argon` | high |

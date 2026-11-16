@@ -43,6 +43,12 @@ SPECS = [
     dict(name="nous-mimo-pro", profile="nous-mimo-pro",
          about="Xiaomi MiMo V2.6 Pro: long agentic investigations at very low cost (cached input is almost free); "
                "slow, and prone to repeating searches, so give it clear stop points."),
+    dict(name="nous-mimo-flash", profile="nous-mimo-flash",
+         about="Xiaomi MiMo V2.6 Flash: the cheap MiMo, about a third of MiMo V2.6 Pro's price with nearly free "
+               "cached input; routine chores, log and file triage, and quick reads of large inputs."),
+    dict(name="nous-qwen-flash", profile="nous-qwen-flash",
+         about="Qwen3.8 Flash: cheap, fast model from Alibaba's Qwen family; routine coding, scripted chores and a "
+               "quick second look from another family."),
     dict(name="nous-glm", profile="nous-glm",
          about="Z.ai GLM 5.3: capable long-horizon coding model; a different-family second opinion on "
                "implementation work."),

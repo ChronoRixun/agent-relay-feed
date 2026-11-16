@@ -24,6 +24,7 @@ LEDGER = "nous-ledger.jsonl"
 
 # Kimi model alias -> Nous model id, reasoning efforts it accepts, and fallback prices in USD per
 # token (prompt, cached prompt read, completion) used only if the live price list is unreachable.
+# `context` is the model's context window when it is smaller than the usual 1048576 tokens.
 MODELS = {
     "nous/deepseek-v4-pro": dict(id="deepseek/deepseek-v4-pro", efforts=["high", "xhigh"],
                                  prices=(0.94e-6, 0.08e-6, 1.89e-6)),
@@ -31,6 +32,10 @@ MODELS = {
                                      prices=(0.106e-6, 0.004e-6, 0.513e-6)),
     "nous/mimo-v2.6-pro": dict(id="xiaomi/mimo-v2.6-pro", efforts=[],
                                prices=(0.435e-6, 0.0036e-6, 0.87e-6)),
+    "nous/mimo-v2.6-flash": dict(id="xiaomi/mimo-v2.6-flash", efforts=[],
+                                 prices=(0.14e-6, 0.0028e-6, 0.28e-6)),
+    "nous/qwen3.8-flash": dict(id="qwen/qwen3.8-flash", efforts=[], context=1000000,
+                               prices=(0.15e-6, 0.016e-6, 0.47e-6)),
     "nous/glm-5.3": dict(id="z-ai/glm-5.3", efforts=["low", "high", "max"],
                          prices=(0.91e-6, 0.169e-6, 2.86e-6)),
     "nous/glm-5.3-flash": dict(id="z-ai/glm-5.3-flash", efforts=["low", "high", "max"],
@@ -61,7 +66,7 @@ def config_toml():
              f'default_model = "{next(iter(MODELS))}"', 'default_permission_mode = "yolo"', '',
              '[providers.nous]', 'type = "openai"', f'base_url = "{BASE_URL}"', f'api_key_env = "{KEY_ENV}"', '']
     for alias, m in MODELS.items():
-        lines += [f'[models."{alias}"]', 'provider = "nous"', f'model = "{m["id"]}"', 'max_context_size = 1048576',
+        lines += [f'[models."{alias}"]', 'provider = "nous"', f'model = "{m["id"]}"', f'max_context_size = {m.get("context", 1048576)}',
                   'capabilities = [ ' + ", ".join(f'"{c}"' for c in (["thinking", "tool_use"] if m["efforts"] else ["tool_use"])) + ' ]']
         if m["efforts"]:
             lines += ['support_efforts = [ ' + ", ".join(f'"{e}"' for e in m["efforts"]) + ' ]',

@@ -30,6 +30,8 @@ Select one of the plugin agents using its full namespaced name:
 | `agent-relay-feed:nous-deepseek-pro` | Nous Portal credits (Kimi CLI) | high |
 | `agent-relay-feed:nous-deepseek-flash` | Nous Portal credits (Kimi CLI) | high |
 | `agent-relay-feed:nous-mimo-pro` | Nous Portal credits (Kimi CLI) | default |
+| `agent-relay-feed:nous-mimo-flash` | Nous Portal credits (Kimi CLI) | default |
+| `agent-relay-feed:nous-qwen-flash` | Nous Portal credits (Kimi CLI) | default |
 | `agent-relay-feed:nous-glm` | Nous Portal credits (Kimi CLI) | high |
 | `agent-relay-feed:nous-glm-flash` | Nous Portal credits (Kimi CLI) | high |
 | `agent-relay-feed:nous-gemini-argon` | Nous Portal credits (Kimi CLI) | high |
