@@ -19,6 +19,11 @@ Select one of the plugin agents using its full namespaced name:
 | `agent-relay-feed:gpt-sol-med` | Codex | medium |
 | `agent-relay-feed:gpt-sol-high` | Codex | high |
 | `agent-relay-feed:gpt-sol-xhigh` | Codex | xhigh |
+| `agent-relay-feed:gpt-sol62-med` | Codex | medium |
+| `agent-relay-feed:gpt-sol62-high` | Codex | high |
+| `agent-relay-feed:gpt-sol62-xhigh` | Codex | xhigh |
+| `agent-relay-feed:gpt-astra62-med` | Codex | medium |
+| `agent-relay-feed:gpt-astra62-high` | Codex | high |
 | `agent-relay-feed:gpt-terra-med` | Codex | medium |
 | `agent-relay-feed:gpt-terra-high` | Codex | high |
 | `agent-relay-feed:kimi-k28` | Kimi | max |
