@@ -267,3 +267,11 @@ python delegate.py watch <job_id> --stall 10 --loop 6 --no-color
 `watch` follows running and newly started jobs; supply job IDs to follow only those jobs. It prints a line when a Claude
 Code subagent starts, finishes, goes quiet or seems to loop, and follows subagents only when no job IDs are given.
 `--stall` is in minutes and overrides `stall_seconds`; `--loop` overrides `loop_count` ([CONFIG](CONFIG.md)).
+
+## Native Codex references
+
+`board`, `watch`, `digest` and `wait --any` also observe native Codex sessions. IDs are `codex-<full thread UUID>`, distinct from Claude's `agent-<id>`. `reviewed` and `run --after` accept that ID or the full UUID; `codex:<role>#<suffix>` is accepted only when unambiguous. UUID timestamp prefixes are deliberately refused. Copy the full ID from the board when in doubt.
+
+Only active native turns keep `wait --any` waiting. Connection failures are reported once, using `codex-native-seen.json` separately from Claude history; the first scan treats existing failures as history. Ordinary silence becomes lost, not a fabricated connection failure. Native `--after` uses the latest observed turn state: it does not guarantee that the user will never resume that chat. For a stable milestone use a finished relay job. Native dependencies are watched by `wait --any` or the feed watcher. Native sessions cannot receive relay `tell` or `answer` messages or be resumed by this tool.
+
+When invoked from a Codex session, `wait --any` excludes the caller and its discovered ancestors using `CODEX_THREAD_ID` (or `CODEX_SESSION_ID`), preventing the supervisor from waiting on itself. They remain visible in the feed and board.

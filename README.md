@@ -49,7 +49,7 @@ way.
 ## What you get
 
 - **One status line per agent.** Workers name their stages; `board` and the feed show stage, time, last activity, quiet
-  and looping agents, for relay jobs and Claude Code subagents alike. [CLI](docs/CLI.md#stages-and-the-board)
+  and looping agents, for relay jobs, Claude Code subagents, and native Codex chats/subagents alike. [CLI](docs/CLI.md#stages-and-the-board)
 - **One wake-up per outcome.** `wait --any` reports each finished job, question and cut-off subagent exactly once.
   [CLI](docs/CLI.md#one-wake-up-per-outcome)
 - **Two-way messages.** Workers ask and wait; you answer or send news mid-run, from a terminal or the feed page.

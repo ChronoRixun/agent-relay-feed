@@ -46,3 +46,9 @@ A relay job's runner sends its alerts, releases its slots, puts back shared stat
 releases queued jobs when it ends. Claude Code subagents have no runner, so those duties fall to whatever is running:
 `wait --any` and the feed server's watcher thread release queued jobs and restore shared state, and the feed server
 sends subagent alerts.
+
+## Native Codex reader
+
+`codex_agents.py` discovers JSONL rollouts under the configured sessions root. It reads whole complete lines (including long metadata), retains the offset before a partial line and resets on file replacement/truncation. It keeps only allowlisted metadata, synthetic summaries and hashed command identities for loop detection. `session_meta.source.subagent.thread_spawn` supplies parent/depth information; other internal subagent sources are excluded. Session UUIDs deduplicate copied files, and relay status session IDs suppress duplicate top-level cards.
+
+`native_agents.py` combines incremental Claude and Codex readers for CLI watching. The feed maintains its own persistent readers. Tests override both roots before discovery so they cannot read real transcripts. Current `item_completed` tool records take precedence over legacy response-item calls; cumulative usage reports are not added twice. The Codex reader intentionally does not ingest result blocks or serve rollout data as evidence.

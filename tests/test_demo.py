@@ -52,7 +52,7 @@ class DemoTests(unittest.TestCase):
         snap = demo_snapshot()
         running = [j for j in snap['jobs'] if j['state'] == 'running']
         finished = [j for j in snap['jobs'] if j['state'] != 'running']
-        self.assertEqual(len(running), 5)
+        self.assertEqual(len(running), 7)
         self.assertEqual(len(finished), 10)
         self.assertEqual(sum(j['stalled'] for j in running), 1)
         self.assertEqual(sum(bool(j['retries']) for j in running), 1)
@@ -87,8 +87,8 @@ class DemoTests(unittest.TestCase):
             self.assertEqual(a['name'], b['name'])
             if a['finished'] is not None:
                 self.assertEqual(b['finished'] - a['finished'], 60)
-        self.assertEqual(len(demo_snapshot(hours=0)['jobs']), 5)
-        self.assertEqual(len(demo_snapshot(hours=1)['jobs']), 10)
+        self.assertEqual(len(demo_snapshot(hours=0)['jobs']), 7)
+        self.assertEqual(len(demo_snapshot(hours=1)['jobs']), 12)
         first['jobs'][0]['name'] = 'changed'
         self.assertEqual(demo_snapshot(now=1800000000)['jobs'][0]['name'], 'refactor-auth-module')
 
@@ -101,7 +101,7 @@ class DemoTests(unittest.TestCase):
              patch.object(F.webbrowser, 'open') as browser, \
              contextlib.redirect_stdout(io.StringIO()) as out:
             F.main(['--demo', '--dump', '--open'])
-        self.assertEqual(len(json.loads(out.getvalue())['jobs']), 15)
+        self.assertEqual(len(json.loads(out.getvalue())['jobs']), 17)
         forbidden.assert_not_called()
         server.assert_not_called()
         browser.assert_not_called()

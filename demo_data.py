@@ -164,6 +164,14 @@ def demo_snapshot(hours=12, now=None):
         entry.update(verdict={'done': 'pass', 'failed': 'fail'}.get(state),
                      flags=1 if name in _FLAGGED else 0, reviewed=state == 'done' and i >= 3)
         jobs.append(entry)
+    native = claude('Inspect parser behavior', 'session', 'GPT-6.1-Sol (high)', 0, None,
+                    12 * 60, 4, 5, 'running', None, 'Agent reported progress')
+    native.update(id='codex-019aaa00-0000-7000-8000-000000000001', source='codex', backend='codex')
+    child = claude('Check parser edge cases', 'worker', 'GPT-6.1-Sol (medium)', 1, native['name'],
+                   9 * 60, 8, 4, 'running', None, 'Agent reported progress')
+    child.update(id='codex-019aaa00-0000-7000-8000-000000000002', source='codex', backend='codex')
+    jobs.extend([native, child])
+
     # The shape of leases.snapshot() plus the owner programs that keep a resource closed.
     slots = [
         dict(name='build', slots=1, rule=None,

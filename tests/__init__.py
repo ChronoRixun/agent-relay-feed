@@ -27,3 +27,8 @@ atexit.register(shutil.rmtree, _ROOT, ignore_errors=True)
 delegate.DELEGATE_ROOT = _ROOT
 delegate.JOBS_ROOT = _ROOT / "jobs"
 delegate.AGENTS_ROOT = _ROOT / "agents"
+
+# Native Codex tests must never read real rollout files.
+from pathlib import Path as _Path
+_delegate_test_codex_root = str(_Path(__file__).resolve().parent / 'no-such-codex-sessions')
+delegate_config.CONFIG['codex_sessions_root'] = _delegate_test_codex_root

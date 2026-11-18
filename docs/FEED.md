@@ -187,3 +187,13 @@ Set `claude_agents_enabled` to `false` to turn this off; `claude_projects_root`,
 Logs and briefs may contain sensitive project data. The pages are read-only unless `feed_pin` is set, but anyone able to
 reach the feed's port can read what they display: with `feed_host` set to `0.0.0.0` that is everyone on your network.
 Do not expose the feed publicly or commit job logs.
+
+## Native Codex sessions and subagents
+
+The same server and pages show native Codex Desktop and CLI sessions with a **Codex native** badge; Orbit places them on the GPT ring. No second server is needed. Subagents show their parent, including children of relay jobs. The relay session itself is hidden to prevent duplicate cards; resumed relay jobs may share one session, so the parent annotation lists those job IDs without assigning a child to an arbitrary attempt. Internal helpers such as guardians are hidden.
+
+An open chat is idle until a recorded turn starts. A completed turn is shown as done, meaning that turn ended, not that the chat cannot resume. Interrupted turns are cancelled. Active turns quiet for more than an hour (or four times the stall threshold, whichever is longer) become lost, with completion unknown. Native cards have no message/answer controls: send follow-ups and cancel from the originating Codex client.
+
+Activity uses safe tool verbs and filenames. Agent messages are represented by a generic progress note: prompts, reasoning, command arguments, tool results and assistant bodies are never displayed. Cumulative output and latest input tokens come from recorded usage; these are not API spend. The review page lists failed/interrupted/lost native turns, but does not export their transcript or serve arbitrary files cited in Codex text.
+
+Discovery is read-only, incremental and configured through the `codex_agents_*` keys and `codex_sessions_root`. New rollout formats may need reader updates; unsupported tool events are omitted rather than exposing their content.

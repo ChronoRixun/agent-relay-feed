@@ -1510,12 +1510,19 @@ def resolve_ref(ref, records=None):
     ref = str(ref or "").strip().strip("\"'")
     if re.fullmatch(r"[\w.-]+", ref) and (JOBS_ROOT / ref).is_dir():
         return ref
-    records = _claude_records() if records is None else records
+    records = _native_records() if records is None else records
     ids = [r["id"] for r in records]
-    short = re.fullmatch(r"(?:claude:)?([\w.:-]*)#(\w{2,})", ref)
+    from codex_agents import UUID
+    uuid = ref.removeprefix("codex-")
+    if UUID.fullmatch(uuid):
+        return "codex-" + uuid.lower()
+    if ref.startswith("codex-"):
+        raise ValueError("use the full codex-<thread UUID>; timestamp prefixes are ambiguous")
+    short = re.fullmatch(r"(?:(claude|codex):)?([\w.:-]*)#(\w{2,})", ref)
     if short:
-        kind, tail = short.group(1).rsplit(":", 1)[-1].casefold(), short.group(2).casefold()
+        source, kind, tail = short.group(1), short.group(2).rsplit(":", 1)[-1].casefold(), short.group(3).casefold()
         hits = [r["id"] for r in records if r["id"].casefold().endswith(tail)
+                and (not source or (r["id"].startswith("codex-") if source == "codex" else r["id"].startswith("agent-")))
                 and (not kind or r["agent_type"].rsplit(":", 1)[-1].casefold() == kind)]
     elif re.fullmatch(r"(?:agent-)?[0-9a-fA-F]{4,}", ref):
         bare = ref.casefold().removeprefix("agent-")
@@ -1530,8 +1537,8 @@ def resolve_ref(ref, records=None):
     if len(hits) == 1:
         return hits[0]
     if len(hits) > 1:
-        raise ValueError(f"{ref} matches {len(hits)} Claude subagents ({', '.join(hits[:5])}); use the full agent-<id>")
-    raise ValueError(f"no such job or Claude subagent: {ref} (a relay job id, agent-<id>, or the board's <type>#<id> label)")
+        raise ValueError(f"{ref} matches {len(hits)} native agents ({', '.join(hits[:5])}); use the full agent-<id>")
+    raise ValueError(f"no such job or native agent: {ref} (a relay job id, agent-<id>, or the board's <type>#<id> label)")
 
 
 def dep_state(dep):
@@ -1541,10 +1548,10 @@ def dep_state(dep):
         return None
     if (JOBS_ROOT / dep).is_dir():
         return effective_status(_last_attempt(dep)).get("state")
-    if dep.startswith("agent-"):
+    if dep.startswith(("agent-", "codex-")):
         if time.time() - _claude_states["at"] > 15:
             try:
-                _claude_states.update(at=time.time(), states={r["id"]: r["state"] for r in _claude_records()})
+                _claude_states.update(at=time.time(), states={r["id"]: r["state"] for r in _native_records()})
             except Exception:
                 _claude_states.update(at=time.time(), states={})
         return _claude_states["states"].get(dep)
@@ -1643,33 +1650,43 @@ def _recent_job_dirs(limit=60):
 
 
 NATIVE_SEEN = "native-seen.json"
+CODEX_NATIVE_SEEN = "codex-native-seen.json"
 NATIVE_SCAN_S = 15
 
 
 def native_deaths(records, now=None):
-    """Claude Code subagents that died of a connection error and that `wait --any` has not
-    reported yet. The first time this runs on a machine, earlier deaths count as history."""
+    """Explicit connection failures once per source; pre-existing failures are history."""
     now = time.time() if now is None else now
-    path = DELEGATE_ROOT / NATIVE_SEEN
-    died = [r for r in records if r.get("died") and now - (r.get("finished") or now) <= 12 * 3600]
-    seen = load_json(path)
-    if not isinstance(seen, dict):
-        mark_native_seen(died)
-        return []
+    found = []
     reviewed = load_reviewed()
-    return [r for r in died if (r.get("finished") or 0) > (seen.get(r["id"]) or 0) and r["id"] not in reviewed]
+    for codex, filename in ((False, NATIVE_SEEN), (True, CODEX_NATIVE_SEEN)):
+        died = [r for r in records if r["id"].startswith("codex-") == codex and r.get("died")
+                and now - (r.get("finished") or now) <= 12 * 3600]
+        path = DELEGATE_ROOT / filename
+        seen = load_json(path)
+        if not isinstance(seen, dict):
+            with leases.locked(DELEGATE_ROOT):
+                if not isinstance(load_json(path), dict):
+                    save_json(path, {r["id"]: r.get("finished") or now for r in died})
+            continue
+        found += [r for r in died if (r.get("finished") or 0) > (seen.get(r["id"]) or 0) and r["id"] not in reviewed]
+    return found
 
 
 def mark_native_seen(records):
-    path = DELEGATE_ROOT / NATIVE_SEEN
     with leases.locked(DELEGATE_ROOT):
-        seen = load_json(path)
-        seen = seen if isinstance(seen, dict) else {}
-        for r in records:
-            seen[r["id"]] = r.get("finished") or time.time()
-        if len(seen) > 500:
-            seen = dict(sorted(seen.items(), key=lambda kv: kv[1] or 0)[-500:])
-        save_json(path, seen)
+        for codex, filename in ((False, NATIVE_SEEN), (True, CODEX_NATIVE_SEEN)):
+            matching = [r for r in records if r["id"].startswith("codex-") == codex]
+            if not matching:
+                continue
+            path = DELEGATE_ROOT / filename
+            seen = load_json(path)
+            seen = seen if isinstance(seen, dict) else {}
+            for r in matching:
+                seen[r["id"]] = r.get("finished") or time.time()
+            if len(seen) > 500:
+                seen = dict(sorted(seen.items(), key=lambda kv: kv[1] or 0)[-500:])
+            save_json(path, seen)
 
 
 def wait_any(wait_s):
@@ -1680,16 +1697,24 @@ def wait_any(wait_s):
     deadline = time.time() + wait_s
     watched = set()
     reader, natives, died, next_scan = None, [], [], 0
-    if CONFIG["claude_agents_enabled"]:
-        import claude_agents
-        reader = claude_agents.ClaudeAgents()
+    import native_agents
+    reader = native_agents.NativeAgents(relay_sessions=codex_relay_sessions)
     while True:
         outcomes, questions, running, collecting = [], [], [], []
         if reader is not None and time.time() >= next_scan:
             next_scan = time.time() + NATIVE_SCAN_S
             try:
                 records = reader.scan()
-                natives = [r for r in records if r["state"] == "running"]
+                # A Codex supervisor calling wait is itself inside an active turn. Exclude
+                # its lineage from the wait set, but keep it visible on the board/feed.
+                caller = os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_SESSION_ID")
+                parents = {r["id"]: r.get("parent_id") for r in records}
+                excluded = set()
+                cur = "codex-" + caller.lower() if caller else None
+                while cur and cur not in excluded:
+                    excluded.add(cur)
+                    cur = parents.get(cur)
+                natives = [r for r in records if r["state"] == "running" and r["id"] not in excluded]
                 died = native_deaths(records)
             except Exception:
                 natives, died = [], []
@@ -2101,6 +2126,32 @@ def _phase_text(phase, since, now):
     return f"phase: {phase} ({fmt_secs(now - since)})" if phase else "no phase reported"
 
 
+def codex_relay_sessions():
+    """One Codex session can belong to multiple resumed relay jobs."""
+    mapped = {}
+    if JOBS_ROOT.is_dir():
+        for jd in JOBS_ROOT.iterdir():
+            if not jd.is_dir():
+                continue
+            st = load_json(jd / "status.json", {}) or {}
+            sid = st.get("session_id")
+            if not isinstance(sid, str):
+                continue
+            meta = load_json(jd / "meta.json", {}) or {}
+            if meta.get("backend") == "codex":
+                mapped.setdefault(sid.lower(), []).append(dict(id=jd.name, name=job_title(meta, jd.name)))
+    return mapped
+
+
+def _codex_records():
+    import codex_agents
+    return codex_agents.CodexAgents(relay_sessions=codex_relay_sessions).scan()
+
+
+def _native_records():
+    return _claude_records() + _codex_records()
+
+
 def cmd_board(args):
     """Every running agent on one line each, then recent outcomes: cheap enough to answer 'how is it going?'."""
     now = time.time()
@@ -2140,10 +2191,10 @@ def cmd_board(args):
                      f"{one_line(info['question'], 300)}")
         running.append(line + ("  QUIET" if quiet > stall and not info["question"] else ""))
     try:
-        records = _claude_records()
+        records = _native_records()
     except Exception as e:
         records = []
-        out(f"(Claude subagents unreadable: {e!r})")
+        out(f"(Native agents unreadable: {e!r})")
     died = []
     for rec in records:
         if rec.get("died") and now - (rec.get("finished") or now) <= args.hours * 3600:
@@ -2291,6 +2342,8 @@ def _job_tag(meta):
 
 
 def _claude_tag(rec):
+    if rec['id'].startswith('codex-'):
+        return f"codex:{rec['agent_type']}#{rec['agent_id'][-8:]}"
     return f"claude/{rec['agent_type'].rsplit(':', 1)[-1][:14]}#{rec['agent_id'][-4:]}"
 
 
@@ -2357,10 +2410,10 @@ def cmd_watch(args):
 
     # native Claude Code subagents too, unless only named jobs are followed or the config switches them off
     claude, claude_followed = None, {}
-    if not args.job and CONFIG["claude_agents_enabled"]:
-        import claude_agents
-        claude = claude_agents.ClaudeAgents(stall_seconds=args.stall * 60)
-    what = "delegate jobs and Claude subagents" if claude else "delegate jobs"
+    if not args.job and (CONFIG["claude_agents_enabled"] or CONFIG.get("codex_agents_enabled", True)):
+        import native_agents
+        claude = native_agents.NativeAgents(relay_sessions=codex_relay_sessions, stall_seconds=args.stall * 60)
+    what = "delegate jobs and native Claude/Codex agents" if claude else "delegate jobs"
     out(f"{c['bold']}watching {what} (Ctrl+C to stop; stall warning after {args.stall} min){c['off']}")
     try:
         while True:
@@ -2371,7 +2424,7 @@ def cmd_watch(args):
                 except Exception as e:      # an unreadable transcript must not end the watch; say so once
                     if claude_followed.get("_error") != repr(e):
                         claude_followed["_error"] = repr(e)
-                        emit("claude", "red", f"could not read Claude subagents: {e!r}")
+                        emit("claude", "red", f"could not read native agents: {e!r}")
             for jd in candidates():
                 job_id = jd.name
                 if job_id not in followed:
@@ -2560,7 +2613,7 @@ def cmd_save(args):
         if (JOBS_ROOT / ref).is_dir():
             text = read_text(JOBS_ROOT / ref / "result.md")
         else:
-            text = next((r.get("final") or "" for r in _claude_records() if r["id"] == ref), "")
+            text = next((r.get("final") or "" for r in _native_records() if r["id"] == ref), "")
         if not text.strip():
             sys.exit(f"error: {ref} has no final message yet")
         data = text.encode("utf-8")
@@ -2629,7 +2682,7 @@ def digest_lines(hours, now=None):
         elif not st.get("resumed_by") and now - (st.get("finished") or 0) <= hours * 3600:
             take(jd.name, name, state, load_json(jd / "result.json"), st.get("finished") or now)
     try:
-        records = _claude_records()
+        records = _native_records()
     except Exception:
         records = []
     for rec in records:

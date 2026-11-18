@@ -27,6 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import claude_agents as CA
+import codex_agents as CX
 import delegate as D
 import results as R
 from delegate_config import CONFIG, ignored_activity_path, normalize_path, repetition
@@ -462,6 +463,43 @@ def claude_jobs(now):
     return [claude_job_summary(r, now) for r in reader.scan(now)]
 
 
+# Native Codex uses the same card contract; no transcript or shell body is exposed.
+_codex = dict(reader=None, key=None)
+
+
+def codex_reader():
+    if not CONFIG.get('codex_agents_enabled', True):
+        return None
+    key = (CONFIG.get('codex_sessions_root'), os.environ.get('CODEX_HOME'),
+           CONFIG.get('codex_agents_window_hours'), tuple(CONFIG.get('codex_agents_projects', [])))
+    if _codex['reader'] is None or _codex['key'] != key:
+        _codex.update(key=key, reader=CX.CodexAgents(relay_sessions=D.codex_relay_sessions))
+    return _codex['reader']
+
+
+def codex_job_summary(rec, now):
+    card = claude_job_summary(rec, now)
+    # Native Codex's last event, not unrelated writes in a shared directory, determines activity.
+    running = rec['state'] == 'running'
+    idle = max(0, now - rec['last_activity'])
+    card.update(source='codex', backend='codex', label=rec['model'] or 'Codex',
+                idle=idle if running else None, stalled=running and idle > STALL_S)
+    return card
+
+
+def codex_jobs(now):
+    reader = codex_reader()
+    return [codex_job_summary(r, now) for r in reader.scan(now)] if reader else []
+
+
+def native_feed_records():
+    records = []
+    for reader in (claude_reader(), codex_reader()):
+        if reader is not None:
+            records.extend(reader.scan())
+    return records
+
+
 # ------------------------------------------------------------------ optional watched processes
 
 _processes = dict(at=0, list=[])
@@ -553,18 +591,23 @@ def snapshot(hours, demo=False):
                 s = dict(id=jd.name, name=jd.name, state='?', error=repr(e), started=now, elapsed=0, events=[])
             if s['state'] in ('running', 'starting', 'queued') or now - (s.get('finished') or s['started']) < hours * 3600:
                 jobs.append(s)
-    try:
-        jobs += [s for s in claude_jobs(now)
-                 if s['state'] == 'running' or now - (s['finished'] or s['started']) < hours * 3600]
-    except Exception as e:      # an unreadable transcript must not blank the page either
-        jobs.append(dict(id='claude-agents', name='Claude subagents', state='?', error=repr(e), started=now,
-                         elapsed=0, events=[], source='claude'))
+    for source, collect in (('claude', claude_jobs), ('codex', codex_jobs)):
+        try:
+            jobs += [s for s in collect(now) if s['state'] == 'running' or now - (s['finished'] or s['started']) < hours * 3600]
+        except Exception:  # one native source must not hide the other or expose parser input
+            tr = CX.Transcript(Path('unavailable'))
+            tr.sid, tr.started = 'unavailable', now
+            rec = tr.record(now, STALL_S)
+            card = codex_job_summary(rec, now) if source == 'codex' else claude_job_summary(rec, now)
+            card.update(id=source + '-agents', name=source.title() + ' agents unreadable', state='?',
+                        errors=['Native session reader unavailable; check local logs.'])
+            jobs.append(card)
     reviewed = D.load_reviewed()
     for j in jobs:
         j['reviewed'] = j.get('id') in reviewed
     jobs.sort(key=lambda j: -(j.get('started') or 0))
     # a subagent usually shares its whole session's folder, so watched processes are attributed to relay jobs only
-    cwds = [(j['name'], j.get('cwd')) for j in jobs if j['state'] in ('running', 'starting') and j.get('source') != 'claude']
+    cwds = [(j['name'], j.get('cwd')) for j in jobs if j['state'] in ('running', 'starting') and j.get('source') == 'relay']
     try:
         slots = D.leases.snapshot(D.DELEGATE_ROOT, CONFIG['resources'], D.job_running, now) if CONFIG['resources'] else []
         for row in slots:   # programs of the machine's owner that keep new holders out for now
@@ -655,7 +698,7 @@ def evidence(hours):
             checked, data, entries = _job_evidence(jd)
             add(jd.name, task_name(meta, jd.name), meta.get('label'), st.get('state'), checked, data, entries,
                 finished, st.get('started'), st.get('errors'))
-    for rec in _claude_finished_records():
+    for rec in _claude_finished_records() + [r for r in (codex_reader().scan() if codex_reader() else []) if r['state'] in D.TERMINAL]:
         finished = rec.get('finished') or now
         if now - finished <= hours * 3600:
             checked, data, entries = _job_evidence(None, rec.get('checked') or {})
@@ -710,10 +753,9 @@ class Watcher(threading.Thread):
         except Exception:
             pass
         D.settle_slots()        # shared state goes back once the last holder of a resource is gone
-        reader = claude_reader()
-        if reader is None or not CONFIG['notify']:
+        if not CONFIG['notify']:
             return
-        for rec in reader.scan():
+        for rec in native_feed_records():
             if rec['state'] == 'running':
                 self.running.add(rec['id'])
             elif rec['id'] in self.running:
@@ -819,7 +861,7 @@ class Handler(BaseHTTPRequestHandler):
         _pin_failures.pop(who, None)
         job, text = str(body.get('job', '')), str(body.get('text', ''))[:4000]
         if path == '/api/review':
-            if not re.fullmatch(r'[\w.-]+', job) or not ((D.JOBS_ROOT / job).is_dir() or job.startswith('agent-')):
+            if not re.fullmatch(r'[\w.-]+', job) or not ((D.JOBS_ROOT / job).is_dir() or job.startswith(('agent-', 'codex-'))):
                 return reply(404, error='No such job.')
             on = D.set_reviewed(job, not body.get('undo'))
             return reply(200, ok=True, reviewed=on)

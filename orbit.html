@@ -651,9 +651,11 @@ function card() {
             row('Waiting for', waits.length ? waits.map(st => esc(st.name) + (st.shut ? ' (closed: owner)' : '')).join(', ') : 'nothing') : '') +
     (!live && j.state !== 'queued' ? row('Verdict', esc((j.verdict || (j.died ? 'cut off by a connection error' : j.state)) + (j.flags ? `, ${j.flags} flagged` : ''))) : '') +
     (j.state === 'queued' ? row('Waits for', esc((j.after || []).map(id => (scene.jobs.find(x => x.id === id) || {}).name || id).join(', '))) : '') +
+    row('Source', j.source === 'codex' ? 'Codex native (read-only)' : '') +
+    row('Parent', j.parent ? esc(j.parent) : '') +
     row('Job', `<span class="mono" style="color:var(--muted)">${esc(j.id)}</span>`) + '</dl>' +
     (j.question && live ? `<div class="qbox"><div class="h">QUESTION</div><div class="q">${esc(j.question)}</div>${answerBox(j)}</div>` :
-     live && d.can_answer && j.source !== 'claude' && j.backend !== 'shell'
+     live && d.can_answer && j.source === 'relay' && j.backend !== 'shell'
        ? `<form data-send="tell" data-job="${esc(j.id)}" style="margin-top:14px"><input placeholder="Message this agent…" autocomplete="off"><button>Send</button></form>` : '') +
     (j.died ? `<div class="how">Resume it once from the session that started it.${j.resume ? ' ' + esc(cut(j.resume, 160)) : ''}</div>` : '') +
     (!live && (j.flags || j.died) ? '<div class="how"><a href="/evidence">Open it on the Review page</a></div>' : '');
@@ -737,6 +739,8 @@ function demo() {
     landed('f-5', 'Translate error messages', 'GLM 5.3 Flash (Nous)', 'kimi', 150, 'done', {provider: 'nous'}), landed('f-6', 'Rebuild the search index', 'Background command', 'shell', 205, 'done'),
     landed('f-7', 'Screenshot the new menu', 'GPT-6.1-Terra (high)', 'codex', 262, 'done', {flags: 2}), landed('f-8', 'Audit the save format', 'general-purpose', 'claude', 318, 'done', {source: 'claude'}),
   ];
+  jobs.push(job({id: 'd-native', name: 'Native code investigation', label: 'GPT-6.1-Sol (high)', source: 'codex', backend: 'codex', started: ago(12*m), phase: 'Read', phase_since: ago(m), stages: []}));
+  jobs.push(job({id: 'd-native-child', name: 'Check edge cases', label: 'GPT-6.1-Sol (medium)', source: 'codex', backend: 'codex', parent: 'Native code investigation', depth: 1, started: ago(8*m), phase: 'Run command', phase_since: ago(m), stages: []}));
   if (DEMO === 'crowd') for (let i = 0; i < 9; i++) jobs.push(job({id: 'c-' + i, name: ['Lint the docs', 'Check links', 'Sort imports', 'Bump versions', 'Scan licences',
       'Trim assets', 'Rename modules', 'Draft the changelog', 'Measure coverage'][i], label: i % 2 ? 'Kimi K3.1 Pro' : 'DeepSeek V4.1 Flash (Nous)',
     backend: 'kimi', provider: i % 2 ? undefined : 'nous', started: ago((5 + i * 9) * m), max_minutes: 100, busy: 2 + i, phase: 'working', stages: []}));

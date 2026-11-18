@@ -197,6 +197,7 @@ function evTime(hms, now) {  // event stamps are HH:MM:SS local; the most recent
 function cut(s, n) { s = String(s ?? ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 function running(j) { return j.state === 'running' || j.state === 'starting'; }
 function prov(j) {
+  if (j.source === 'codex') return {tag: 'CODEX NATIVE', c: 'var(--gpt)'};
   if (j.source === 'claude') return {tag: 'CLAUDE', c: 'var(--claude)'};
   if (j.backend === 'codex') return {tag: 'GPT', c: 'var(--gpt)'};
   if (j.backend === 'kimi' && j.provider !== 'nous') return {tag: 'KIMI', c: 'var(--kimi)'};
@@ -229,10 +230,11 @@ function tile(j, d) {
       <text x="31" y="31" class="mono">${short(j.elapsed)}</text><title>running ${dur(j.elapsed)}; last activity ${dur(j.idle || 0)} ago</title></svg>
     <div class="t-head"><span class="prov">${p.tag}</span><span class="model">${esc(modelName(j))}</span><span class="state"><i></i>${WORD[st]}</span></div>
     <div class="t-name" title="${esc(j.name)}">${esc(j.name)}</div>
+    ${j.source === 'codex' && j.parent ? `<div class="t-stage none">↳ under ${esc(j.parent)}</div>` : ''}
     ${stage}
     <div class="t-foot">${c ? `<span class="nowstep" title="${esc(c.raw)}">▸ ${esc(c.verb)} ${esc(c.detail)}</span>` : ''}
       <span><b>${k.commands || 0}</b> steps</span><span>active <b>${dur(j.idle || 0)}</b> ago</span>${j.queued ? `<span><b>${j.queued}</b> queued</span>` : ''}${held}
-      ${d.can_answer && j.source !== 'claude' ? `<form class="msg" data-send="${j.question ? 'answer' : 'tell'}" data-job="${esc(j.id)}"><input placeholder="${j.question ? 'Type your answer…' : 'Message this agent…'}" autocomplete="off"><button>${j.question ? 'Answer' : 'Send'}</button></form>` : ''}</div>
+      ${d.can_answer && j.source === 'relay' ? `<form class="msg" data-send="${j.question ? 'answer' : 'tell'}" data-job="${esc(j.id)}"><input placeholder="${j.question ? 'Type your answer…' : 'Message this agent…'}" autocomplete="off"><button>${j.question ? 'Answer' : 'Send'}</button></form>` : ''}</div>
   </article>`;
 }
 
@@ -376,6 +378,8 @@ function demo() {
     {name: 'build', slots: 1, held: [{slot: 1, holder: 'demo-1', since: ago(9 * m)}]},
     {name: 'test-copy', slots: 2, held: [{slot: 1, holder: 'demo-2', since: ago(31 * m)}]}],
     jobs: [
+      job({id: 'demo-native', name: 'Native parser investigation', label: 'GPT-6.1-Sol (high)', source: 'codex', backend: 'codex', profile: 'session', started: ago(12 * m), stages: [], phase: 'Read', phase_since: ago(m)}),
+      job({id: 'demo-native-child', name: 'Check edge cases', label: 'GPT-6.1-Sol (medium)', source: 'codex', backend: 'codex', profile: 'worker', parent: 'Native parser investigation', depth: 1, started: ago(8 * m), stages: [], phase: 'Run command', phase_since: ago(m)}),
       job({id: 'demo-1', name: 'Parser rewrite', label: 'GPT-6.1-Sol (high)', profile: 'gpt-sol-high', started: ago(96 * m),
         stages: [ph(ago(95 * m), 'Read the old parser'), ph(ago(71 * m), 'Design the new grammar'), ph(ago(48 * m), 'Implement tokenizer'),
           {t: ago(40 * m), kind: 'asked', text: 'Keep the legacy escape rules?'}, {t: ago(37 * m), kind: 'answered', text: 'Yes, behind a flag'},

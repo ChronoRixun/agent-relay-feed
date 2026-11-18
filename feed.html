@@ -186,6 +186,8 @@ function ago(hms, now) {   // event stamps are HH:MM:SS local
 }
 function model(j, compact) {
   const p = j.profile || '';
+  if (j.source === 'codex')
+    return `<span class="chip src-gpt" title="Native Codex session; controls remain in Codex">Codex native</span> <span class="chip m-gpt">${esc(j.label)}</span> <span class="chip">${esc(j.agent_type || 'session')}</span>`;
   if (j.source === 'claude')   // Claude Code subagent: source badge, model, and its agent type
     return `<span class="chip src-claude" title="Claude Code subagent (${esc(p)})">Claude</span> <span class="chip m-claude">${esc(j.label)}</span>` +
       (compact ? '' : `<span class="chip kind" title="agent type">${esc(p)}</span>`);
@@ -201,7 +203,7 @@ function model(j, compact) {
 }
 function tok(n) { return n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n || 0); }
 function nested(j) {
-  if (j.source !== 'claude' || !(j.depth > 1)) return '';
+  if (!((j.source === 'claude' && j.depth > 1) || (j.source === 'codex' && j.parent))) return '';
   return `<span title="spawned by another subagent">↳ ${j.parent ? 'under ' + esc(j.parent) : 'nested, depth ' + j.depth}</span>`;
 }
 function evRow(e) {
@@ -260,11 +262,11 @@ function card(j, now) {
     ${j.question ? `<div class="note ask open"><div class="when">needs an answer · waiting ${dur(now - j.question_since)}</div><div class="txt">${esc(j.question)}</div></div>` : ''}
     ${j.phase ? `<div class="now"><span class="lbl">Stage</span><span class="what"><b>${esc(j.phase)}</b></span><span class="muted" style="flex:none;font-size:12px">for ${dur(now - j.phase_since)}</span></div>` : ''}
     ${nowLine}
-    <div class="stats"><span><b>${k.commands || 0}</b> steps</span><span class="${k.failed ? 'fail' : ''}"><b>${k.failed || 0}</b> ${j.source === 'claude' ? 'failed steps' : 'non-zero exits'}</span><span><b>${k.messages || 0}</b> notes</span><span><b>${k.files || 0}</b> file edits</span>${j.tokens ? `<span title="output tokens so far · size of the latest prompt"><b>${tok(j.tokens.output)}</b> out · <b>${tok(j.tokens.context)}</b> context</span>` : ''}</div>
+    <div class="stats"><span><b>${k.commands || 0}</b> steps</span><span class="${k.failed ? 'fail' : ''}"><b>${k.failed || 0}</b> ${j.source === 'claude' ? 'failed steps' : 'non-zero exits'}</span><span><b>${k.messages || 0}</b> notes</span><span><b>${k.files || 0}</b> file edits</span>${j.tokens ? `<span title="${j.source === 'codex' ? 'Cumulative output tokens · latest input tokens (not API spend)' : 'output tokens so far · size of the latest prompt'}"><b>${tok(j.tokens.output)}</b> out · <b>${tok(j.tokens.context)}</b> context</span>` : ''}</div>
     <ul class="tl">${shown.map(evRow).join('')}</ul>
     <div class="metaline"><button class="link" data-toggle="${esc(j.id)}">${isOpen ? 'show less' : `show all ${evs.length} steps`}</button>
       <span class="mono" title="${esc(j.cwd)}">${esc((j.cwd || '').split(/[\\/]/).slice(-2).join('/'))}</span><span class="mono">${esc(j.id)}</span></div>
-    ${canAnswer && j.source !== 'claude' ? `<form class="send tell" data-send="tell" data-job="${esc(j.id)}"><input placeholder="Message this agent (read at its next stage)…" autocomplete="off"><button>Send</button></form>` : ''}
+    ${canAnswer && j.source === 'relay' ? `<form class="send tell" data-send="tell" data-job="${esc(j.id)}"><input placeholder="Message this agent (read at its next stage)…" autocomplete="off"><button>Send</button></form>` : ''}
     ${j.progress && j.progress.length ? `<details><summary>progress file (last ${j.progress.length} lines)</summary><pre class="mono">${esc(j.progress.join('\n'))}</pre></details>` : ''}
   </section>`;
 }

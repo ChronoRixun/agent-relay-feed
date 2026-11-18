@@ -64,7 +64,9 @@ DEFAULTS = dict(path_shortening=[], watched_processes=[], feed_port=8765,
                 # the projects root changed within the window; an optional list of substrings keeps
                 # only matching project folders or working directories.
                 claude_agents_enabled=True, claude_projects_root="~/.claude/projects",
-                claude_agents_window_hours=24, claude_agents_projects=[])
+                claude_agents_window_hours=24, claude_agents_projects=[],
+                codex_agents_enabled=True, codex_sessions_root="",
+                codex_agents_window_hours=24, codex_agents_projects=[])
 
 
 def _strings(value):
@@ -90,10 +92,12 @@ def _valid(key, value):
         return type(value) is int and (1 <= value <= 16 if key == "queue_max_running" else 0 <= value <= 3)
     if key == "codex_exec_yield_ms":
         return type(value) is int and 0 <= value <= 3600000
-    if key == "claude_agents_enabled":
+    if key in ("claude_agents_enabled", "codex_agents_enabled"):
         return type(value) is bool
     if key in ("nous_monthly_usd", "nous_max_usd_per_job"):
         return type(value) in (int, float) and math.isfinite(value) and value >= 0
+    if key == "codex_sessions_root":
+        return isinstance(value, str)
     if key in ("claude_projects_root", "claude_api_key_file", "feed_host", "nous_api_key_file"):
         return isinstance(value, str) and bool(value.strip())
     if key == "claude_api_mcp_servers":
@@ -110,10 +114,10 @@ def _valid(key, value):
         return type(value) in (int, float) and math.isfinite(value) and value >= 0
     if key == "checkpoint_minutes":
         return type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 120
-    if key in ("stall_seconds", "polling_seconds", "claude_agents_window_hours", "ask_wait_seconds"):
+    if key in ("stall_seconds", "polling_seconds", "claude_agents_window_hours", "codex_agents_window_hours", "ask_wait_seconds"):
         return type(value) in (int, float) and math.isfinite(value) and value > 0
     if key in ("job_path_roots", "activity_ignore_paths", "codex_mcp_allow", "codex_plugins_allow", "guard_allow_dirs",
-               "claude_agents_projects", "claude_api_mcp_allow"):
+               "claude_agents_projects", "codex_agents_projects", "claude_api_mcp_allow"):
         return _strings(value)
     if key == "resources":
         return isinstance(value, dict) and all(

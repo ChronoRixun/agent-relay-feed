@@ -109,3 +109,12 @@ See [FEED](FEED.md#alerts).
 | `DELEGATE_CODEX` | Path to the Codex executable. |
 | `DELEGATE_KIMI_MAIN` | Path to the Kimi npm package's `main.mjs` (Windows). |
 | `DELEGATE_CLAUDE` | Path to the Claude Code executable for Claude API jobs. |
+
+## Native Codex sessions
+
+| Key | Default | Meaning |
+|---|---|---|
+| `codex_agents_enabled` | `true` | Show native Codex Desktop/CLI sessions and subagents. |
+| `codex_sessions_root` | `""` | Empty resolves to `$CODEX_HOME/sessions`, or `~/.codex/sessions`; otherwise use this directory. |
+| `codex_agents_window_hours` | `24` | Discover rollout files modified within this window, including resumed older chats. |
+| `codex_agents_projects` | `[]` | Optional case-insensitive working-directory substrings. |
