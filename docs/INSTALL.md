@@ -26,7 +26,7 @@ Start a new Claude Code session after installing. Plugin agents are namespaced, 
 `/agent-relay-feed:feed` starts the local feed and opens its URL (or ask it to start without opening a browser).
 `/agent-relay-feed:delegate` describes profile selection, briefs, waiting, follow-ups and access limits.
 
-The twenty-seven plugin agents are generated from the same template as the manual installer. They use the documented
+The twenty-eight plugin agents are generated from the same template as the manual installer. They use the documented
 `${CLAUDE_PLUGIN_ROOT}` substitution in their Markdown bodies, which resolves to the installed plugin's absolute path.
 They resolve your home directory at runtime and store job data outside the plugin cache, in the `~/.claude/delegate/`
 layout, so plugin updates do not invalidate hardcoded paths or delete job data. Use a current Claude Code release with

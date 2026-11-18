@@ -98,6 +98,8 @@ PROFILES = {
                             label="MiMo V2.6 Flash (Nous)"),
     "nous-qwen-flash": dict(backend="kimi", provider="nous", model="nous/qwen3.8-flash", effort="default",
                             label="Qwen3.8 Flash (Nous)"),
+    "nous-qwen-max": dict(backend="kimi", provider="nous", model="nous/qwen4-max", effort="high",
+                          label="Qwen4 Max (Nous)"),
     "nous-glm": dict(backend="kimi", provider="nous", model="nous/glm-5.3", effort="high",
                      label="GLM 5.3 (Nous)"),
     "nous-glm-flash": dict(backend="kimi", provider="nous", model="nous/glm-5.3-flash", effort="high",

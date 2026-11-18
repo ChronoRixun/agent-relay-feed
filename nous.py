@@ -36,6 +36,8 @@ MODELS = {
                                  prices=(0.14e-6, 0.0028e-6, 0.28e-6)),
     "nous/qwen3.8-flash": dict(id="qwen/qwen3.8-flash", efforts=[], context=1000000,
                                prices=(0.15e-6, 0.016e-6, 0.47e-6)),
+    "nous/qwen4-max": dict(id="qwen/qwen4-max", efforts=["low", "high", "xhigh"], context=1000000,
+                           prices=(1.425e-6, 0.0713e-6, 4.275e-6)),
     "nous/glm-5.3": dict(id="z-ai/glm-5.3", efforts=["low", "high", "max"],
                          prices=(0.91e-6, 0.169e-6, 2.86e-6)),
     "nous/glm-5.3-flash": dict(id="z-ai/glm-5.3-flash", efforts=["low", "high", "max"],

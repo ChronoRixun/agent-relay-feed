@@ -54,6 +54,9 @@ SPECS = [
     dict(name="nous-qwen-flash", profile="nous-qwen-flash",
          about="Qwen3.8 Flash: cheap, fast model from Alibaba's Qwen family; routine coding, scripted chores and a "
                "quick second look from another family."),
+    dict(name="nous-qwen-max", profile="nous-qwen-max",
+         about="Qwen4 Max: Alibaba's flagship Qwen model, about nine times Qwen3.8 Flash's price; harder coding, "
+               "longer tasks and second opinions from another family where the Flash models fall short."),
     dict(name="nous-glm", profile="nous-glm",
          about="Z.ai GLM 5.3: capable long-horizon coding model; a different-family second opinion on "
                "implementation work."),
