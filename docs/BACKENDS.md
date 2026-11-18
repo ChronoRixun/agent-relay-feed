@@ -126,7 +126,7 @@ Tests make no real API calls. Claude API jobs are never resumed automatically an
 
 ## The relay agents
 
-All twenty-two relay variants come from one template:
+All twenty-seven relay variants come from one template:
 
 | Agent tool name | Delegate profile | Effort |
 |---|---|---|
@@ -136,6 +136,11 @@ All twenty-two relay variants come from one template:
 | `gpt-sol-med` | `gpt-sol-med` | medium |
 | `gpt-sol-high` | `gpt-sol-med` | high override |
 | `gpt-sol-xhigh` | `gpt-sol-med` | xhigh override |
+| `gpt-sol62-med` | `gpt-sol62-med` | medium |
+| `gpt-sol62-high` | `gpt-sol62-high` | high |
+| `gpt-sol62-xhigh` | `gpt-sol62-xhigh` | xhigh |
+| `gpt-astra62-med` | `gpt-astra62-med` | medium |
+| `gpt-astra62-high` | `gpt-astra62-high` | high |
 | `gpt-terra-med` | `gpt-terra-med` | medium |
 | `gpt-terra-high` | `gpt-terra-high` | high |
 | `kimi-k28` | `kimi-k28` | max |
